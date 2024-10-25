@@ -7,6 +7,7 @@ use Magento\Framework\Exception\CouldNotSaveException;
 use Magento\Authorization\Model\UserContextInterface;
 use Magento\Framework\Exception\LocalizedException;
 use StripeIntegration\Payments\Exception\GenericException;
+use StripeIntegration\Payments\Exception\PaymentMethodInUse;
 
 class Generic
 {
@@ -1332,7 +1333,12 @@ class Generic
                         // Detach the card from the customer
                         try
                         {
-                            $stripeClient->paymentMethods->detach($paymentMethod['id']);
+                            $stripeCustomer = $this->stripeCustomerModelFactory->create()->fromStripeCustomerId($customerId);
+                            $stripeCustomer->deletePaymentMethod($paymentMethod['id']);
+                        }
+                        catch (PaymentMethodInUse $e)
+                        {
+                            continue;
                         }
                         catch (\Exception $e)
                         {

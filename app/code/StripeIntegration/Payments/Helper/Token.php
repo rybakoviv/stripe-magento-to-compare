@@ -22,6 +22,14 @@ class Token
         return substr($token, 0, 3) == "pm_";
     }
 
+    public function isPaymentIntentToken($token)
+    {
+        if (!is_string($token))
+            return false;
+
+        return substr($token, 0, 3) == "pi_";
+    }
+
     public function isSetupIntentToken($token)
     {
         if (!is_string($token))

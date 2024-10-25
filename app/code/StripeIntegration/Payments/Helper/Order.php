@@ -14,6 +14,7 @@ class Order
     private $orderCommentSender;
     private $logger;
     private $tokenHelper;
+    private $orderCollectionFactory;
 
     public function __construct(
         \Magento\Tax\Api\OrderTaxManagementInterface $orderTaxManagement,
@@ -21,6 +22,7 @@ class Order
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
         \Magento\Sales\Model\Order\Email\Sender\OrderCommentSender $orderCommentSender,
         \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender,
+        \Magento\Sales\Model\ResourceModel\Order\CollectionFactory $orderCollectionFactory,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \StripeIntegration\Payments\Helper\Logger $logger,
         \StripeIntegration\Payments\Helper\Token $tokenHelper
@@ -31,6 +33,7 @@ class Order
         $this->orderRepository = $orderRepository;
         $this->orderCommentSender = $orderCommentSender;
         $this->orderSender = $orderSender;
+        $this->orderCollectionFactory = $orderCollectionFactory;
         $this->subscriptionProductFactory = $subscriptionProductFactory;
         $this->logger = $logger;
         $this->tokenHelper = $tokenHelper;
@@ -147,6 +150,17 @@ class Order
         {
             return null;
         }
+    }
+
+    public function loadOrdersByQuoteId($quoteId)
+    {
+        if (empty($quoteId))
+            return null;
+
+        $orderCollection = $this->orderCollectionFactory->create()
+            ->addFieldToFilter('quote_id', $quoteId);
+
+        return $orderCollection;
     }
 
     public function getOrderDescription($order)
@@ -281,5 +295,26 @@ class Order
         $order->addStatusToHistory(false, $comment, false);
 
         return $order;
+    }
+
+    public function getTransactionId($order)
+    {
+        $transactionId = $order->getPayment()->getLastTransId();
+        $transactionId = $this->tokenHelper->cleanToken($transactionId);
+
+        if (empty($transactionId))
+            return null;
+
+        return $transactionId;
+    }
+
+    public function getPaymentIntentId($order)
+    {
+        $transactionId = $this->getTransactionId($order);
+
+        if (!$this->tokenHelper->isPaymentIntentToken($transactionId))
+            return null;
+
+        return $transactionId;
     }
 }

@@ -9,19 +9,16 @@ class PaymentMethodOptionsService implements PaymentMethodOptionsServiceInterfac
 {
     private $areaCodeHelper;
     private $config;
-    private $httpHeader;
     private $quote = null;
     private $savePaymentMethod = null;
 
     public function __construct(
         \StripeIntegration\Payments\Helper\AreaCode $areaCodeHelper,
-        \StripeIntegration\Payments\Model\Config $config,
-        \Magento\Framework\HTTP\Header $httpHeader
+        \StripeIntegration\Payments\Model\Config $config
     )
     {
         $this->areaCodeHelper = $areaCodeHelper;
         $this->config = $config;
-        $this->httpHeader = $httpHeader;
     }
 
     public function setQuote($quote) : PaymentMethodOptionsServiceInterface
@@ -98,7 +95,7 @@ class PaymentMethodOptionsService implements PaymentMethodOptionsServiceInterfac
             }
         }
 
-        $wechatOptions["wechat_pay"]["client"] = $this->getWechatClient();
+        $wechatOptions["wechat_pay"]["client"] = 'web';
 
         return array_merge_recursive($sfuOptions, $captureOptions, $wechatOptions);
     }
@@ -138,21 +135,6 @@ class PaymentMethodOptionsService implements PaymentMethodOptionsServiceInterfac
         }
 
         return $terms;
-    }
-
-    private function getWechatClient()
-    {
-        $userAgent = $this->httpHeader->getHttpUserAgent();
-
-        if(strpos($userAgent, 'Android') !== false) {
-            return 'android';
-        }
-
-        if(strpos($userAgent, 'iPhone') !== false || strpos($userAgent, 'iPad') !== false || strpos($userAgent, 'iPod') !== false) {
-            return 'ios';
-        }
-
-        return 'web';
     }
 
     private function hasSaveOption($options)

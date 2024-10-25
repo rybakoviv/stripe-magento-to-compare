@@ -85,7 +85,8 @@ class OrderService
                     // Process webhook events which have arrived before the order was saved
                     $events = $this->webhookEventCollectionFactory->create()->getEarlyEventsForPaymentIntentId($transactionId, [
                         'charge.succeeded', // Regular orders
-                        'invoice.payment_succeeded' // Subscriptions
+                        'invoice.payment_succeeded', // Subscriptions
+                        'setup_intent.succeeded' // Trial subscriptions
                     ]);
 
                     foreach ($events as $eventModel)

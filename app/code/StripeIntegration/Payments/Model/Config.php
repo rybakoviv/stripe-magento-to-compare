@@ -9,7 +9,7 @@ use StripeIntegration\Payments\Exception\GenericException;
 class Config
 {
     public static $moduleName           = "Magento2";
-    public static $moduleVersion        = "4.0.7";
+    public static $moduleVersion        = "4.0.8";
     public static $minStripePHPVersion  = "13.15.0";
     public static $moduleUrl            = "https://stripe.com/docs/plugins/magento";
     public static $partnerId            = "pp_partner_Fs67gT2M6v3mH7";

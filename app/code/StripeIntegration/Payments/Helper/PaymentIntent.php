@@ -38,7 +38,7 @@ class PaymentIntent
         \StripeIntegration\Payments\Helper\Url $urlHelper,
         \StripeIntegration\Payments\Model\Stripe\PaymentMethodFactory $stripePaymentMethodFactory,
         \StripeIntegration\Payments\Model\Config $config,
-        \StripeIntegration\Payments\Api\PaymentMethodOptionsServiceInterface $paymentMethodOptionsService
+        \StripeIntegration\Payments\Service\PaymentMethodOptionsService $paymentMethodOptionsService
     )
     {
         $this->remoteAddress = $remoteAddress;

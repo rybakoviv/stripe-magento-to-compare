@@ -3,6 +3,7 @@
 namespace StripeIntegration\Payments\Model;
 
 use StripeIntegration\Payments\Exception\GenericException;
+use StripeIntegration\Payments\Exception\PaymentMethodInUse;
 
 class StripeCustomer extends \Magento\Framework\Model\AbstractModel
 {
@@ -22,6 +23,7 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
     private $paymentMethodFactory;
     private $resourceModel;
     private $quoteHelper;
+    private $orderCollectionFactory;
 
     /**
      * @param \Magento\Framework\Model\Context $context
@@ -41,6 +43,7 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
         \Magento\Customer\Model\Session $customerSession,
         \Magento\Framework\Session\SessionManagerInterface $sessionManager,
         \StripeIntegration\Payments\Model\ResourceModel\StripeCustomer $resourceModel,
+        \Magento\Sales\Model\ResourceModel\Order\CollectionFactory $orderCollectionFactory,
         \Magento\Framework\Model\Context $context,
         \Magento\Framework\Registry $registry,
         \Magento\Framework\Model\ResourceModel\AbstractResource $resource = null,
@@ -56,6 +59,7 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
         $this->sessionManager = $sessionManager;
         $this->customerSession = $customerSession;
         $this->resourceModel = $resourceModel;
+        $this->orderCollectionFactory = $orderCollectionFactory;
         $this->quoteHelper = $quoteHelper;
 
         parent::__construct($context, $registry, $resource, $resourceCollection, $data); // This will also call _construct after DI logic
@@ -324,6 +328,68 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
         }
     }
 
+    private function verifyCanDeletePaymentMethod($paymentMethodId)
+    {
+        $customerId = $this->getStripeId();
+        $stripePaymentMethodModel = $this->paymentMethodFactory->create()->fromPaymentMethodId($paymentMethodId);
+        $paymentMethod = $stripePaymentMethodModel->getStripeObject();
+        if (!$paymentMethod)
+            return;
+
+        // In "Authorize Only" mode, there will be non-successful payment intents associated with orders which are still being processed
+        $oneDay = 60 * 60 * 24;
+        $created = $paymentMethod->created - $oneDay;
+        $paymentIntents = $this->config->getStripeClient()->paymentIntents->all(['customer' => $customerId, 'created' => ['gte' => $created]]);
+        $eligiblePaymentIntentIds = [];
+
+        foreach ($paymentIntents->autoPagingIterator() as $paymentIntent)
+        {
+            if ($paymentIntent->payment_method == $paymentMethodId && $paymentIntent->status != "succeeded")
+            {
+                $eligiblePaymentIntentIds[] = $paymentIntent->id;
+            }
+        }
+
+        $statuses = ['processing', 'pending_payment', 'payment_review', 'pending', 'holded'];
+        foreach ($eligiblePaymentIntentIds as $paymentIntentId)
+        {
+            $orders = $this->helper->getOrdersByTransactionId($paymentIntentId);
+            foreach ($orders as $order)
+            {
+                if (in_array($order->getStatus(), $statuses))
+                {
+                    $message = __("Sorry, it is not possible to delete this payment method because order #%1 which was placed using it is still being processed.", $order->getIncrementId());
+                    throw new PaymentMethodInUse($message);
+                }
+            }
+        }
+
+        // In "Order" mode, there will be orders placed with this payment method that do not have any transactions yet
+        $orders = $this->getCustomerOrdersWithoutTransaction($paymentMethodId, $statuses, $created);
+        foreach ($orders as $order)
+        {
+            $message = __("Sorry, it is not possible to delete this payment method because order #%1 which was placed using it is still being processed.", $order->getIncrementId());
+            throw new PaymentMethodInUse($message);
+        }
+    }
+
+    // Get orders which have a status in $statuses, which have no last_trans_id and which have payment additional_information that includes $paymentMethodId
+    private function getCustomerOrdersWithoutTransaction($paymentMethodId, $statuses, $createdAtTimestamp)
+    {
+        $collection = $this->orderCollectionFactory->create()
+            ->addAttributeToSelect('*')
+            ->join(
+                ['payment' => 'sales_order_payment'],
+                'main_table.entity_id = payment.parent_id',
+                ['payment_method' => 'payment.method', 'payment_additional_information' => 'payment.additional_information']
+            )
+            ->addFieldToFilter('main_table.created_at', ['gteq' => $createdAtTimestamp])
+            ->addFieldToFilter('main_table.status', ['in' => $statuses])
+            ->addFieldToFilter('payment.additional_information', ['like' => '%' . $paymentMethodId . '%']);
+
+        return $collection;
+    }
+
     public function deletePaymentMethod($token, $fingerprint = null)
     {
         if (!$this->_stripeCustomer)
@@ -335,6 +401,8 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
         // Deleting a payment method
         if (strpos($token, "pm_") === 0)
         {
+            $this->verifyCanDeletePaymentMethod($token);
+
             if ($fingerprint)
             {
                 $allMethods = $this->getSavedPaymentMethods(null, false);
@@ -386,7 +454,7 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
 
         // If the customer cannot manage saved payment methods at the customer account section,
         // then it makes sense that they should also not be able to see them at the checkout page.
-        if (!$this->config->getSavePaymentMethod())
+        if (!$this->config->getSavePaymentMethod() && !$this->config->alwaysSaveCards())
             return [];
 
         $methods = [];

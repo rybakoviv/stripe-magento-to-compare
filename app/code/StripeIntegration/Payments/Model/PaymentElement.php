@@ -3,6 +3,7 @@
 namespace StripeIntegration\Payments\Model;
 
 use StripeIntegration\Payments\Exception\GenericException;
+use StripeIntegration\Payments\Exception\OrderPlacedAndPaidException;
 
 class PaymentElement extends \Magento\Framework\Model\AbstractModel
 {
@@ -26,6 +27,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
     private $stripePaymentMethodFactory;
     private $setupIntentCollection;
     private $checkoutFlow;
+    private $orderValidator;
     private $tokenHelper;
 
     public function __construct(
@@ -36,6 +38,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
         \StripeIntegration\Payments\Helper\PaymentIntent $paymentIntentHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
+        \StripeIntegration\Payments\Helper\OrderValidator $orderValidator,
         \StripeIntegration\Payments\Helper\Token $tokenHelper,
         \StripeIntegration\Payments\Model\PaymentIntentFactory $paymentIntentModelFactory,
         \StripeIntegration\Payments\Model\Config $config,
@@ -67,6 +70,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
         $this->resourceModel = $resourceModel;
         $this->paymentIntentCollection = $paymentIntentCollection;
         $this->setupIntentCollection = $setupIntentCollection;
+        $this->orderValidator = $orderValidator;
         $this->orderHelper = $orderHelper;
         $this->tokenHelper = $tokenHelper;
         $this->checkoutFlow = $checkoutFlow;
@@ -81,8 +85,24 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
 
     public function updateFromOrder($order)
     {
-        if (empty($order))
-            throw new GenericException("No order specified.");
+        try
+        {
+            $this->orderValidator->validate($order);
+        }
+        catch (OrderPlacedAndPaidException $e)
+        {
+            if ($e->orderAmountMatchesPaymentAmount())
+            {
+                return;
+            }
+            else
+            {
+                $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
+                $quote->setIsActive(false);
+                $this->quoteHelper->saveQuote($quote);
+                return $this->helper->throwError(__("The order has already been placed and paid."));
+            }
+        }
 
         $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
 
@@ -257,7 +277,8 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
         }
 
         $orders = $this->helper->getOrdersByTransactionId($transactionId);
-        $comment = __("The cart contents or customer details have changed. The order is canceled because a new one will be placed (#%1) with the new details.", $currentOrder->getIncrementId());
+
+        $comment = __("The cart contents or customer details have changed, or a checkout crash occurred. The order is canceled because a new one will be placed (#%1).", $currentOrder->getIncrementId());
 
         foreach ($orders as $order)
         {

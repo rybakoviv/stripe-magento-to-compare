@@ -28,7 +28,7 @@ class InitParams
         \StripeIntegration\Payments\Model\PaymentElement $paymentElement,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \StripeIntegration\Payments\Helper\PaymentMethod $paymentMethodHelper,
-        \StripeIntegration\Payments\Api\PaymentMethodOptionsServiceInterface $paymentMethodOptionsService
+        \StripeIntegration\Payments\Service\PaymentMethodOptionsService $paymentMethodOptionsService
     ) {
         $this->serializer = $serializer;
         $this->helper = $helper;

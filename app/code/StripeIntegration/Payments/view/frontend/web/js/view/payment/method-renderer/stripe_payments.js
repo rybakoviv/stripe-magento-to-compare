@@ -363,6 +363,7 @@ define(
                         self.cardCvcElement = elements.create('cardCvc', self.getCardCVCOptions());
                         self.cardCvcElement.mount('#stripe-card-cvc-element');
                         self.cardCvcElement.on('change', self.onCvcChange.bind(self));
+                        self.cardCvcElement.on('loaderror', self.onLoadError.bind(self));
                     }
                     catch (e)
                     {
@@ -388,7 +389,7 @@ define(
                 else
                     this.permanentError($t("Sorry, this payment method is not available. Please contact us for assistance."));
 
-                console.error("Error: " + message);
+                console.error("Error: ", message);
             },
 
             softCrash: function(message)
@@ -399,7 +400,7 @@ define(
                 else
                     this.showError($t("Sorry, this payment method is not available. Please contact us for assistance."));
 
-                console.error("Error: " + message);
+                console.error("Error: ", message);
             },
 
             isCollapsed: function()
@@ -445,10 +446,23 @@ define(
                     this.paymentElement = this.elements.create('payment', this.getPaymentElementOptions());
                     this.paymentElement.mount('#stripe-payment-element');
                     this.paymentElement.on('change', this.onChange.bind(this));
+                    this.paymentElement.on('loaderror', this.onLoadError.bind(this));
                 }
                 catch (e)
                 {
                     this.crash(e.message);
+                }
+            },
+
+            onLoadError: function(event)
+            {
+                if (event && event.error && event.error.message)
+                {
+                    this.permanentError(event.error.message);
+                }
+                else
+                {
+                    this.crash(event);
                 }
             },
 

@@ -195,6 +195,10 @@ class PaymentMethod extends \Magento\Payment\Model\Method\Adapter
             {
                 $this->doNotPay($payment);
             }
+            else if ($this->checkoutFlow->creatingOrderFromCharge)
+            {
+                $this->createOrderFromCharge($payment, $amount);
+            }
             else
             {
                 $this->pay($payment, $amount);

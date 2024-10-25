@@ -4,11 +4,19 @@
         <policy id="script-src">
             <values>
                 <value id="stripe-sub" type="host">*.stripe.com</value>
+                <value id="stripe-net" type="host">*.stripe.network</value>
+                <value id="stripe-cdn" type="host">*.stripecdn.com</value>
                 <value id="klarna-com" type="host">klarna.com</value>
                 <value id="klarna-sub" type="host">*.klarna.com</value>
                 <value id="klarna-cdn" type="host">*.klarnacdn.net</value>
                 <value id="klarna-evt" type="host">*.klarnaevt.com</value>
                 <value id="link" type="host">*.link.com</value>
+            </values>
+        </policy>
+        <policy id="style-src">
+            <values>
+                <value id="stripe-net" type="host">*.stripe.network</value>
+                <value id="stripe-cdn" type="host">*.stripecdn.com</value>
             </values>
         </policy>
         <policy id="connect-src">
@@ -41,6 +49,7 @@
         <policy id="font-src">
             <values>
                 <value id="stripe-sub" type="host">*.stripe.com</value>
+                <value id="stripe-cdn" type="host">*.stripecdn.com</value>
                 <value id="klarna-com" type="host">klarna.com</value>
                 <value id="klarna-sub" type="host">*.klarna.com</value>
                 <value id="klarna-cdn" type="host">*.klarnacdn.net</value>

@@ -9,7 +9,7 @@
 	xsi:noNamespaceSchemaLocation="urn:magento:mftf:Page/etc/SectionObject.xsd">
     <section name="StorefrontCustomerPaymentMethodsFormSection">
         <element name="paymentMethodSelector" type="button" selector="//div[contains(@class,'p-PaymentMethodSelector')]" />
-        <element name="paymentForm" type="button" selector="//div[contains(@class,'p-PaymentDetails-group')]" />
+        <element name="paymentForm" type="button" selector="//div[contains(@class,'p-Tabs-group')]" />
         <element name="paymentElementIframe" type="iframe" selector="//div[@id='stripe-setup-element']//iframe" />
         <element name="payByCardNumberField" type="input" selector="//input[@name='number']" />
         <element name="payByCardExpField" type="input" selector="//input[@name='expiry']" />
