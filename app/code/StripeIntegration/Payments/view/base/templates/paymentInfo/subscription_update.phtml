@@ -1,0 +1,42 @@
+<span class="stripe-method-title"><?= __('Subscription update'); //phpcs:ignore ?></span>
+
+<table class="admin__table-secondary order-information-table stripe payment-info">
+  <tbody>
+
+    <?php if ($block->getOriginalSubscriptionOrderIncrementId()): ?>
+    <tr>
+        <td><?= __('Original order number'); //phpcs:ignore ?></td>
+        <td class="stripe-original-order">
+            <a href="<?= $block->getSubscriptionOrderUrl($block->getOriginalSubscriptionOrderIncrementId()); //phpcs:ignore ?>" target="_blank">
+                #<?= $block->getOriginalSubscriptionOrderIncrementId(); //phpcs:ignore ?>
+            </a>
+        </td>
+    </tr>
+    <?php endif; ?>
+
+    <?php if (!empty($block->getFormattedAmount())): ?>
+    <tr>
+        <td><?= __('Amount'); //phpcs:ignore ?></td>
+        <td class="stripe-amount">
+            <strong>
+                <?php if ($block->isMultiShipping()): ?>
+                    <?= $block->getFormattedMultishippingAmount(); //phpcs:ignore ?>
+                <?php else: ?>
+                    <?= $block->getFormattedAmount(); //phpcs:ignore ?>
+                <?php endif; ?>
+            </strong>
+        </td>
+    </tr>
+    <?php endif; ?>
+
+    <?php if (!empty($block->getFormattedSubscriptionAmount())): ?>
+    <tr>
+        <td><?= __('Subscription amount'); //phpcs:ignore ?></td>
+        <td class="stripe-subscription-amount">
+            <?= $block->getFormattedSubscriptionAmount(); //phpcs:ignore ?>
+        </td>
+    </tr>
+    <?php endif; ?>
+
+    </tbody>
+</table>

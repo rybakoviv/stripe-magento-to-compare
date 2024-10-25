@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<actionGroups xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:noNamespaceSchemaLocation="urn:magento:mftf:Test/etc/actionGroupSchema.xsd">
+    <actionGroup name="SelectOxxoPaymentMethodActionGroup">
+        <annotations>
+            <description>Switch to Stripe iFrame, switch to OXXO payment method.</description>
+        </annotations>
+
+        <!-- Select OXXO Payment method -->
+        <click selector="#oxxo-tab" stepKey="selectOxxoPaymentMethodTab"/>
+
+        <!-- Wait for the payment method form to load -->
+        <waitForElementVisible selector=".p-PaymentDetails-group" stepKey="waitForPaymentDetailsGroup" time="5"/>
+
+    </actionGroup>
+</actionGroups>
