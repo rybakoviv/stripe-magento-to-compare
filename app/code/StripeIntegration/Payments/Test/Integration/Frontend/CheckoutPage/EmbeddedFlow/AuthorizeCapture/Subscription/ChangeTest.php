@@ -80,7 +80,10 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
                                 "interval_count" => 1
                             ],
                         ],
-                        "quantity" => 1
+                        "quantity" => 1,
+                        "plan" => [
+                            "amount" => 1583
+                        ]
                     ]
                 ]
             ],
@@ -101,7 +104,8 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
 
         // Change the product qty in the cart from 1 to 2
         $quote = $this->quote->getQuote();
-        $quote->getItemsCollection()->getFirstItem()->setQty(2);
+        $item = $quote->getItemsCollection()->getFirstItem();
+        $item->setQty(2);
         $quote->save();
 
         // Place the order
@@ -114,8 +118,8 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
 
         // The order should be closed
         $this->tests->compare($newOrder->getData(), [
-            "state" => "canceled",
-            "status" => "canceled"
+            "state" => "complete",
+            "status" => "complete"
         ]);
 
         // Stripe checks
@@ -127,7 +131,7 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
                 "data" => [
                     0 => [
                         "plan" => [
-                            "amount" => $newOrder->getGrandTotal() * 100
+                            "amount" => 3165
                         ]
                     ]
                 ]
@@ -152,8 +156,7 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
 
         // Check the new order
         $recurringOrder = $this->tests->getLastOrder();
-        $this->assertNotEquals($newOrder->getGrandTotal(), $order->getGrandTotal());
-        $this->assertEquals($newOrder->getGrandTotal(), $recurringOrder->getGrandTotal());
+        $this->assertEquals(31.65, $recurringOrder->getGrandTotal());
     }
 
     public function testDowngrade()
@@ -206,7 +209,10 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
                                 "interval_count" => 1
                             ],
                         ],
-                        "quantity" => 1
+                        "quantity" => 1,
+                        "plan" => [
+                            "amount" => 3165
+                        ]
                     ]
                 ]
             ],
@@ -240,8 +246,8 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
 
         // The order should be closed
         $this->tests->compare($newOrder->getData(), [
-            "state" => "canceled",
-            "status" => "canceled"
+            "state" => "complete",
+            "status" => "complete"
         ]);
 
         // Stripe checks
@@ -253,7 +259,7 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
                 "data" => [
                     0 => [
                         "plan" => [
-                            "amount" => $newOrder->getGrandTotal() * 100
+                            "amount" => 1583
                         ]
                     ]
                 ]
@@ -278,7 +284,6 @@ class ChangeTest extends \PHPUnit\Framework\TestCase
 
         // Check the new order
         $recurringOrder = $this->tests->getLastOrder();
-        $this->assertNotEquals($newOrder->getGrandTotal(), $order->getGrandTotal());
-        $this->assertEquals($newOrder->getGrandTotal(), $recurringOrder->getGrandTotal());
+        $this->assertEquals(15.83, $recurringOrder->getGrandTotal());
     }
 }

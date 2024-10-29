@@ -110,7 +110,7 @@ class Address
             'region' => $region,
             'postcode' => $data['address']['postal_code'] ?? null,
             'country_id' => $country,
-            'telephone' => $data['phone'],
+            'telephone' => $data['phone'] ?? null,
             'fax' => null,
         ];
     }

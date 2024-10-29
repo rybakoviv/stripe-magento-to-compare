@@ -79,4 +79,9 @@ class Store
     {
         return $this->storeManager->getStore()->isCurrentlySecure();
     }
+
+    public function getStore($storeId = null)
+    {
+        return $this->storeManager->getStore($storeId ?? $this->getStoreId());
+    }
 }

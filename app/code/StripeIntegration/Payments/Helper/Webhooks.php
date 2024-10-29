@@ -663,18 +663,23 @@ class Webhooks
             if ($charge->status == 'succeeded')
             {
                 if ($charge->captured == false)
-                    // $invoice = $this->helper->invoicePendingOrder($order, \Magento\Sales\Model\Order\Invoice::NOT_CAPTURE, $charge->id);
+                {
                     return;
+                }
                 else
+                {
                     $invoice = $this->helper->invoiceOrder($order, $charge->id);
+                }
 
                 if ($sendNewOrderEmail)
+                {
                     $this->orderHelper->sendNewOrderEmailFor($order, true);
+                }
             }
             // SEPA, SOFORT and other asynchronous methods will be pending
             else if ($charge->status == 'pending')
             {
-                $invoice = $this->helper->invoicePendingOrder($order, $charge->id);
+                $invoice = $this->helper->invoiceOrder($order, $charge->id, \Magento\Sales\Model\Order\Invoice::NOT_CAPTURE, true);
 
                 if ($sendNewOrderEmail)
                     $this->orderHelper->sendNewOrderEmailFor($order, true);
@@ -913,12 +918,7 @@ class Webhooks
             }
 
             // There will be no charge.succeeded event for trial subscription orders, so create the invoice here.
-            // Then refund the amount that was not collected for the trial subscription. This is because when the
-            // subscription activates, a new order will be created with a separate invoice.
             $this->helper->invoiceOrder($order, null, \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE);
-            $baseRefundTotal = $order->getBaseGrandTotal();
-            $creditmemo = $this->creditmemoHelper->refundOfflineOrderBaseAmount($order, $baseRefundTotal);
-            $this->creditmemoHelper->save($creditmemo);
         }
 
         $this->orderHelper->saveOrder($order);

@@ -136,21 +136,14 @@ class ChargeSucceeded
 
         if ($amountCaptured > 0)
         {
-            // We intentionally do not pass $params in order to avoid multi-currency rounding errors.
-            // For example, if $order->getGrandTotal() == $16.2125, Stripe will charge $16.2100. If we
-            // invoice for $16.2100, then there will be an order total due for 0.0075 which will cause problems.
-            // $params = [
-            //     "amount" => $amountCaptured,
-            //     "currency" => $object['currency']
-            // ];
-            $this->helper->invoiceOrder($order, $transactionId, \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE, $params = null, true);
+            $this->helper->invoiceOrder($order, $transactionId, \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE, true);
         }
         else if ($amountCaptured == 0) // Authorize Only mode
         {
             if ($hasSubscriptions)
             {
                 // If it has trial subscriptions, we want a Paid invoice which will partially refund
-                $this->helper->invoiceOrder($order, $transactionId, \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE, null, true);
+                $this->helper->invoiceOrder($order, $transactionId, \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE, true);
             }
         }
 
@@ -158,11 +151,6 @@ class ChargeSucceeded
             $this->orderHelper->holdOrder($order);
 
         $order = $this->orderHelper->saveOrder($order);
-
-        if (!empty($stripeInvoice) && $stripeInvoice->status == "paid")
-        {
-            $this->creditmemoHelper->refundUnderchargedOrder($order, $stripeInvoice->amount_paid, $stripeInvoice->currency);
-        }
 
         // Update the payment intents table, because the payment method was created after the order was placed
         $paymentIntentModel = $this->paymentIntentFactory->create()->load($object['payment_intent'], 'pi_id');
@@ -245,7 +233,7 @@ class ChargeSucceeded
         }
 
         if ($paymentMethodType) {
-            $this->paymentMethodHelper->savePaymentMethod($order->getId(), $paymentMethodType, $this->json->serialize($cardData));
+            $this->paymentMethodHelper->savePaymentMethod($order, $paymentMethodType, $cardData);
         }
     }
 }

@@ -194,13 +194,15 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->tests->refundOnline($invoice, ['simple-monthly-subscription-initial-fee-product' => 1], $baseShipping = 5);
 
         // Stripe checks
+        // Tax is 8.375, price is 10 and it is taxed, initial fee is 3 and it is taxed, shipping fee is 5 and not taxed:
+        // 10 * 1.08375 + 3 * 1.08375 + 5 = 19.09
         $invoice = $this->tests->stripe()->invoices->retrieve($customer->subscriptions->data[0]->latest_invoice, ['expand' => ['payment_intent']]);
         $this->tests->compare($invoice, [
             "payment_intent" => [
                 "charges" => [
                     "data" => [
                         0 => [
-                            "amount_refunded" => 1884
+                            "amount_refunded" => 1909
                         ]
                     ]
                 ]

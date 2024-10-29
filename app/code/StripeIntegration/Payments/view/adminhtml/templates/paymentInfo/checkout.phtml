@@ -1,5 +1,5 @@
 <h4>
-    <span class="stripe-method-title"><?= __('Stripe Checkout - %1', $block->getTitle()); //phpcs:ignore ?></span>
+    <span class="stripe-method-title"><?= __('Stripe Checkout - %1', $block->escapeHtml($block->getTitle())); //phpcs:ignore ?></span>
 
     <?php if (!empty($block->getPaymentMethodCode())): ?>
     <span class="stripe-payment-method">

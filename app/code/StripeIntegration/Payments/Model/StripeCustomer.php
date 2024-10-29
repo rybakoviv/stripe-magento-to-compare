@@ -4,6 +4,7 @@ namespace StripeIntegration\Payments\Model;
 
 use StripeIntegration\Payments\Exception\GenericException;
 use StripeIntegration\Payments\Exception\PaymentMethodInUse;
+use StripeIntegration\Payments\Exception\InvalidPaymentMethod;
 
 class StripeCustomer extends \Magento\Framework\Model\AbstractModel
 {
@@ -371,6 +372,11 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
             $message = __("Sorry, it is not possible to delete this payment method because order #%1 which was placed using it is still being processed.", $order->getIncrementId());
             throw new PaymentMethodInUse($message);
         }
+
+        if (!$this->getStripeId() || !$paymentMethod->customer || $paymentMethod->customer != $this->getStripeId())
+        {
+            throw new InvalidPaymentMethod("This payment method could not be deleted. Please contact us for assistance.");
+        }
     }
 
     // Get orders which have a status in $statuses, which have no last_trans_id and which have payment additional_information that includes $paymentMethodId
@@ -446,7 +452,7 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
     {
         if (!$types)
         {
-            $types = \StripeIntegration\Payments\Helper\PaymentMethod::CAN_BE_SAVED_ON_SESSION;
+            $types = $this->paymentMethodHelper->getPaymentMethodsThatCanBeSaved();
         }
 
         if (!$this->getStripeId())
@@ -459,20 +465,22 @@ class StripeCustomer extends \Magento\Framework\Model\AbstractModel
 
         $methods = [];
 
-        foreach ($types as $type)
+        try
         {
-            try
+            $result = $this->config->getStripeClient()->customers->allPaymentMethods($this->getStripeId(), ['limit' => 30]);
+            if (!empty($result->data))
             {
-                $result = $this->config->getStripeClient()->customers->allPaymentMethods($this->getStripeId(), ['type' => $type, 'limit' => 30]);
-                if (!empty($result->data))
+                foreach ($result->data as $method)
                 {
-                    $methods[$type] = $result->data;
+                    $type = $method->type;
+                    if (in_array($type, $types))
+                        $methods[$type][] = $method;
                 }
             }
-            catch (\Exception $e)
-            {
-                $this->helper->logError("Cannot retrieve saved payment methods for customer {$this->getStripeId()}: " . $e->getMessage());
-            }
+        }
+        catch (\Exception $e)
+        {
+            $this->helper->logError("Cannot retrieve saved payment methods for customer {$this->getStripeId()}: " . $e->getMessage());
         }
 
         if ($formatted)

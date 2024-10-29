@@ -2,6 +2,8 @@
 
 namespace StripeIntegration\Payments\Test\Integration\Frontend\CheckoutPage\EmbeddedFlow\AuthorizeOnly\ManualInvoicing;
 
+use StripeIntegration\Payments\Exception\PaymentMethodInUse;
+
 /**
  * Magento 2.3.7-p3 does not enable these at class level
  * @magentoAppIsolation enabled
@@ -53,7 +55,7 @@ class DeletePaymentMethodTest extends \PHPUnit\Framework\TestCase
             $stripeCustomer->deletePaymentMethod($stripePaymentMethod->id);
             $this->assertTrue(false, "The payment method should not be deletable");
         }
-        catch (\StripeIntegration\Payments\Exception\PaymentMethodInUse $e)
+        catch (PaymentMethodInUse $e)
         {
 
         }

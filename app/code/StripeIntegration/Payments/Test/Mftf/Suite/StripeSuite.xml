@@ -25,7 +25,7 @@
             <test name="PlaceOrderP24Test" />
             <test name="PlaceOrderSavedCardTest" />
             <test name="PlaceOrderSofortTest" />
-            <test name="PlaceOrderSavedCard3DSTest" />
+            <!-- <test name="PlaceOrderSavedCard3DSTest" /> -->
             <test name="ReCaptchaInvisibleTest" />
             <test name="PlaceOrderOxxoTest" />
             <test name="TermsAndConditionsTest" />

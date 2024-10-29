@@ -42,7 +42,7 @@ if (empty($subscriptions)): ?>
           </td>
           <td data-th="<?= __("Subscription"); //phpcs:ignore ?>" class="col id">
             <div class="subscription-name">
-              <?= $block->getSubscriptionName($subscription); //phpcs:ignore ?>
+              <?= $block->escapeHtml($block->getSubscriptionName($subscription)); //phpcs:ignore ?>
             </div>
             <div class="billed">
               <?= $stripeSubscriptionModel->getFormattedBilling(); //phpcs:ignore ?>

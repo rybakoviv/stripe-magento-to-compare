@@ -126,10 +126,6 @@ class ECEResponse
 
         // Save the quote and shipping address and collect new shipping rates
         $shippingAddress->setCollectShippingRates(true);
-        $this->quoteHelper->saveQuote($this->quote);
-
-        // Reload the shipping address after the quote save
-        $shippingAddress = $this->quote->getShippingAddress()->load($this->quote->getShippingAddress()->getId());
 
         $shippingRates = $this->getShippingRatesForQuoteShippingAddress();
         if (count($shippingRates) > 0)
@@ -143,10 +139,8 @@ class ECEResponse
             $shippingAddress->setShippingMethod(null);
         }
 
+        $this->quoteHelper->reCollectTotals($this->quote);
         $this->quoteHelper->saveQuote($this->quote);
-
-        $this->quote = $this->quoteHelper->reloadQuote($this->quote);
-        $this->quote = $this->quoteHelper->reCalculateQuoteTotals($this->quote);
 
         $this->resolvePayload = $this->getShippingResolvePayload();
 
@@ -183,9 +177,7 @@ class ECEResponse
             $this->shippingInformationManagement->saveAddressInformation($quote->getId(), $shippingInformation);
 
             // Update totals
-            $quote->setTotalsCollectedFlag(false);
-            // $quote->collectTotals();
-            $this->quoteHelper->saveQuote($quote);
+            $this->quoteHelper->reCollectTotals($quote);
         }
 
         $this->resolvePayload = $this->getShippingResolvePayload();
@@ -327,11 +319,15 @@ class ECEResponse
      */
     protected function getProductResolvePayload($productId, $attribute)
     {
-        /** @var \Magento\Catalog\Model\Product $product */
-        $product = $this->helper->loadProductById($productId);
-
-        if (!$product || !$product->getId())
+        try
+        {
+            /** @var \Magento\Catalog\Model\Product $product */
+            $product = $this->productHelper->getProduct($productId);
+        }
+        catch (\Exception $e)
+        {
             return [];
+        }
 
         $currency = $this->getCurrencyFromQuote();
 
@@ -599,7 +595,10 @@ class ECEResponse
 
         if ($this->quote->getGrandTotal() != $grandTotal)
         {
-            return [];
+            return [[
+                'name' => __('Grand Total'),
+                'amount' => $this->helper->convertMagentoAmountToStripeAmount($this->quote->getGrandTotal(), $currency, true),
+            ]];
         }
 
         return $lineItems;

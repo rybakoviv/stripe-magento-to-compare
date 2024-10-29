@@ -18,9 +18,17 @@ class Product
         $this->storeManager = $storeManager;
     }
 
-    public function getProduct($productId)
+    public function getProduct($productId): \Magento\Catalog\Api\Data\ProductInterface
     {
-        $storeId = $this->storeManager->getStore()->getId();
+        if ($this->storeManager->getStore() && $this->storeManager->getStore()->getId())
+        {
+            $storeId = $this->storeManager->getStore()->getId();
+        }
+        else
+        {
+            $storeId = null;
+        }
+
         try
         {
             return $this->productRepository->getById($productId, false, $storeId);
@@ -81,14 +89,15 @@ class Product
 
         if ($product->getTypeId() == 'bundle')
         {
-            $options = $product->getTypeInstance()->getOptionsCollection($product);
-            foreach ($options as $option)
+            $bundleType = $product->getTypeInstance();
+            $optionIds = $bundleType->getOptionsIds($product);
+            $selections = $bundleType->getSelectionsCollection($optionIds, $product);
+
+            foreach ($selections as $selection)
             {
-                $selections = $option->getSelections();
-                foreach ($selections as $selection)
+                if (!$selection->isVirtual())
                 {
-                    if ($this->requiresShipping($selection))
-                        return true;
+                    return true;
                 }
             }
         }
@@ -133,17 +142,12 @@ class Product
         // Bundle
         if ($product->getTypeId() == 'bundle')
         {
-            $options = $product->getTypeInstance()->getOptionsCollection($product);
-            $minPrice = null;
-            foreach ($options as $option)
-            {
-                $selections = $option->getSelections();
-                foreach ($selections as $selection)
-                {
-                    if ($minPrice === null || $selection->getPrice() < $minPrice)
-                        $minPrice = $selection->getPrice();
-                }
-            }
+            // Get the default price displayed in the product catalog
+            $minPrice = $product->getPriceInfo()
+                ->getPrice('final_price')
+                ->getMinimalPrice()
+                ->getValue();
+
             return $minPrice;
         }
 

@@ -9,31 +9,34 @@ class UpdateItemOptions
     private $resultRedirectFactory;
     private $messageManager;
     private $config;
-    private $subscriptionsHelper;
     private $helper;
     private $controller;
     private $configurableProductFactory;
     private $subscriptionProductFactory;
     private $subscriptionUpdatesHelper;
+    private $checkoutSessionHelper;
+    private $productHelper;
 
     public function __construct(
         \Magento\Framework\Controller\Result\RedirectFactory $resultRedirectFactory,
         \Magento\Framework\Message\ManagerInterface $messageManager,
         \Magento\ConfigurableProduct\Model\Product\Type\ConfigurableFactory $configurableProductFactory,
         \StripeIntegration\Payments\Model\Config $config,
-        \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
+        \StripeIntegration\Payments\Helper\Product $productHelper,
         \StripeIntegration\Payments\Helper\Generic $helper,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
-        \StripeIntegration\Payments\Helper\SubscriptionUpdates $subscriptionUpdatesHelper
+        \StripeIntegration\Payments\Helper\SubscriptionUpdates $subscriptionUpdatesHelper,
+        \StripeIntegration\Payments\Helper\CheckoutSession $checkoutSessionHelper
     ) {
         $this->resultRedirectFactory = $resultRedirectFactory;
         $this->messageManager = $messageManager;
         $this->config = $config;
-        $this->subscriptionsHelper = $subscriptionsHelper;
         $this->helper = $helper;
         $this->configurableProductFactory = $configurableProductFactory;
         $this->subscriptionProductFactory = $subscriptionProductFactory;
         $this->subscriptionUpdatesHelper = $subscriptionUpdatesHelper;
+        $this->checkoutSessionHelper = $checkoutSessionHelper;
+        $this->productHelper = $productHelper;
     }
 
     public function aroundExecute(
@@ -43,7 +46,7 @@ class UpdateItemOptions
         try
         {
             $this->controller = $subject;
-            $isSubscriptionUpdate = $this->config->isSubscriptionsEnabled() && $this->subscriptionsHelper->isSubscriptionUpdate();
+            $isSubscriptionUpdate = $this->config->isSubscriptionsEnabled() && $this->checkoutSessionHelper->isSubscriptionUpdate();
             if ($isSubscriptionUpdate)
             {
                 $this->validateAllowedSubscriptionUpdate();
@@ -90,9 +93,7 @@ class UpdateItemOptions
         if (!$productId || !$superAttribute)
             return;
 
-        $product = $this->helper->loadProductById($productId);
-        if (!$product || !$product->getId())
-            return;
+        $product = $this->productHelper->getProduct($productId);
 
         if ($product->getTypeId() != 'configurable')
             return;
@@ -106,19 +107,19 @@ class UpdateItemOptions
         if (in_array($selectedProduct->getId(), $subscriptionUpdateDetails['_data']['product_ids']))
             return; // The product selection has not changed
 
-        $selectedSubscriptionProduct = $this->subscriptionProductFactory->create()->fromProductId($selectedProduct->getId());
+        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($selectedProduct->getId());
 
-        if (!$selectedSubscriptionProduct->isSubscriptionProduct())
+        if (!$subscriptionProductModel->isSubscriptionProduct())
         {
             throw new LocalizedException(__('This option is not a subscription. If you would like to cancel your subscription, you can do so from the customer account section.'));
         }
 
-        if ($selectedSubscriptionProduct->hasStartDate())
+        if ($subscriptionProductModel->hasStartDate())
         {
             throw new LocalizedException(__('This option is not available because it will reset the subscription billing date.'));
         }
 
-        if (!$selectedSubscriptionProduct->getIsSaleable())
+        if (!$subscriptionProductModel->getIsSalable())
         {
             throw new LocalizedException(__('Sorry, this option is not available right now.'));
         }

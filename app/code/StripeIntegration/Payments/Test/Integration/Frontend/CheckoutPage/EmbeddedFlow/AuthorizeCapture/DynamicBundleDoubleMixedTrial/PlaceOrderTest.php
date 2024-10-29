@@ -81,7 +81,7 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
             + $trialSubscriptionsConfig["shipping_total"]
             - $trialSubscriptionsConfig["discount_total"]
             + $trialSubscriptionsConfig["tax_total"];
-        $expectedChargeAmount = $order->getGrandTotal() - $trialSubscriptionTotal;
+        $expectedChargeAmount = $order->getGrandTotal();
         $expectedChargeAmountStripe = $this->tests->helper()->convertMagentoAmountToStripeAmount($expectedChargeAmount, $currency);
         $trialSubscriptionTotalStripe = $this->tests->helper()->convertMagentoAmountToStripeAmount($trialSubscriptionTotal, $currency);
         $this->assertEquals($trialSubscriptionTotalStripe, $subscription->plan->amount);
@@ -101,16 +101,14 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
             "status" => "processing",
             "total_due" => 0,
             "total_paid" => $order->getGrandTotal(),
-            "total_refunded" => $trialSubscriptionTotal
+            "total_refunded" => 0
         ]);
         $this->assertEquals(1, $order->getInvoiceCollection()->getSize());
         $invoice = $order->getInvoiceCollection()->getFirstItem();
         $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
 
         // Credit memos check
-        $this->assertEquals(1, $order->getCreditmemosCollection()->getSize());
-        $creditmemo = $order->getCreditmemosCollection()->getFirstItem();
-        $this->assertEquals($trialSubscriptionTotal, $creditmemo->getGrandTotal());
+        $this->assertEquals(0, $order->getCreditmemosCollection()->getSize());
 
         // End the trial
         $this->tests->endTrialSubscription($subscriptionId);

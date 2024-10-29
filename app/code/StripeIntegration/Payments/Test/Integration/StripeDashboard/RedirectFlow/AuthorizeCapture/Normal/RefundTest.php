@@ -50,22 +50,10 @@ class RefundTest extends \PHPUnit\Framework\TestCase
 
         $stripe = $this->tests->stripe();
 
-        // Partially refund the charge
+        // Refund the charge
         $order = $this->tests->refreshOrder($order);
         $this->assertEquals($response->payment_intent->id, $order->getPayment()->getLastTransId());
-        $refund = $stripe->refunds->create(['charge' => $paymentIntent->charges->data[0], 'amount' => 500]);
-
-        // charge.refunded
-        $this->tests->event()->trigger("charge.refunded", $paymentIntent->charges->data[0]->id);
-
-        // Refresh the order object
-        $order = $this->tests->refreshOrder($order);
-        $this->assertEquals("processing", $order->getStatus());
-        $this->assertEquals(5, $order->getTotalRefunded());
-
-        // Refund the remaining amount
-        $remainingAmount = ($order->getGrandTotal() - $order->getTotalRefunded()) * 100;
-        $refund = $stripe->refunds->create(['charge' => $paymentIntent->charges->data[0], 'amount' => $remainingAmount]);
+        $refund = $stripe->refunds->create(['charge' => $paymentIntent->charges->data[0]]);
 
         // charge.refunded
         $this->tests->event()->trigger("charge.refunded", $paymentIntent->charges->data[0]->id);

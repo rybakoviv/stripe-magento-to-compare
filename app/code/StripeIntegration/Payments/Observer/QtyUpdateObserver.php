@@ -35,10 +35,7 @@ class QtyUpdateObserver implements ObserverInterface
 
         foreach ($items as $item)
         {
-            if (!empty($item->getQtyOptions()))
-                $additionalOptions = $this->helper->getAdditionalOptionsForChildrenOf($item);
-            else
-                $additionalOptions = $this->helper->getAdditionalOptionsForProductId($item->getProductId(), $item);
+            $additionalOptions = $this->helper->getAdditionalOptionsForQuoteItem($item);
 
             if (!empty($additionalOptions))
             {

@@ -78,10 +78,10 @@ class StartDateTodayTest extends \PHPUnit\Framework\TestCase
 
         // Start date is today, so the subscription starts immediately
         $this->assertCount(1, $charges->data);
-        $this->assertEquals($order->getGrandTotal() * 100, $charges->data[0]->amount);
+        $this->assertEquals(3165, $charges->data[0]->amount);
         $expectedOrderState = "processing";
         $expectedOrderStatus = "processing";
-        $expectedPaidAmount = $order->getGrandTotal();
+        $expectedPaidAmount = 31.65;
 
         $subscription = $customer->subscriptions->data[0];
         // Get the subscription start date
@@ -116,6 +116,7 @@ class StartDateTodayTest extends \PHPUnit\Framework\TestCase
         // The order should be canceled
         $order = $this->tests->refreshOrder($order);
         $this->tests->compare($order->getData(),[
+            "grand_total" => $expectedPaidAmount,
             "state" => $expectedOrderState,
             "status" => $expectedOrderStatus,
             'total_paid' => $expectedPaidAmount,
@@ -141,7 +142,7 @@ class StartDateTodayTest extends \PHPUnit\Framework\TestCase
         // Make sure that the new order amount is the same
         $recurringOrder = $this->tests->getLastOrder();
         $this->tests->compare($recurringOrder->getData(), [
-            'grand_total' => $order->getGrandTotal()
+            'grand_total' => 31.65
         ]);
     }
 }

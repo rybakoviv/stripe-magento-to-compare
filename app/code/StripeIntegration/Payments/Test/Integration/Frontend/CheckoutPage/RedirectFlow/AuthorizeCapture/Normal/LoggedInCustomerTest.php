@@ -41,12 +41,8 @@ class LoggedInCustomerTest extends \PHPUnit\Framework\TestCase
             ->setBillingAddress("Berlin")
             ->setPaymentMethod("StripeCheckout");
 
-        $this->tests->assertCheckoutSessionsCountEquals(1);
-
         // Place the order
         $order = $this->quote->placeOrder();
-
-        // Ensure that we re-used the cached session from the api
         $this->tests->assertCheckoutSessionsCountEquals(1);
 
         $lastCheckoutSession = $this->tests->getLastCheckoutSession();
@@ -90,12 +86,8 @@ class LoggedInCustomerTest extends \PHPUnit\Framework\TestCase
             ->setBillingAddress("Berlin")
             ->setPaymentMethod("StripeCheckout");
 
-        $this->tests->assertCheckoutSessionsCountEquals(1);
-
         // Place the order
         $order = $this->quote->placeOrder();
-
-        // Ensure that we re-used the cached session from the api
         $this->tests->assertCheckoutSessionsCountEquals(1);
 
         $lastCheckoutSession = $this->tests->getLastCheckoutSession();

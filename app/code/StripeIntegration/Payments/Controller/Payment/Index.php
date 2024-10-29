@@ -73,6 +73,7 @@ class Index implements ActionInterface
         {
             $this->checkoutSession->setLastRealOrderId($order->getIncrementId());
             $order->addStatusHistoryComment($message);
+            $this->orderHelper->removeTransactions($order);
             $this->helper->cancelOrCloseOrder($order, true, true);
             $this->orderHelper->saveOrder($order);
         }
@@ -84,23 +85,32 @@ class Index implements ActionInterface
     private function returnFromPaymentElement()
     {
         $paymentIntentId = $this->request->getParam('payment_intent');
+        $setupIntentId = $this->request->getParam('setup_intent');
 
-        if (empty($paymentIntentId))
+        if ($paymentIntentId)
+        {
+            $paymentIntent = $this->config->getStripeClient()->paymentIntents->retrieve($paymentIntentId, []);
+            $setupIntent = null;
+        }
+        else if ($setupIntentId)
+        {
+            $paymentIntent = null;
+            $setupIntent = $this->config->getStripeClient()->setupIntents->retrieve($setupIntentId, []);
+        }
+        else
         {
             // The customer was redirected here right from the checkout page, rather than an external URL.
             // This can happen when 3DS was performed on the checkout page, and the redirect is necessary to de-activate the quote.
             return $this->success();
         }
 
-        $paymentIntent = $this->config->getStripeClient()->paymentIntents->retrieve($paymentIntentId, []);
-
         $quote = $this->checkoutSession->getQuote();
 
         if ($this->multishippingHelper->isMultishippingQuote(null, $quote))
         {
-            if ($this->paymentIntentHelper->isSuccessful($paymentIntent) ||
-                $this->paymentIntentHelper->requiresOfflineAction($paymentIntent) ||
-                $this->paymentIntentHelper->isAsyncProcessing($paymentIntent))
+            if ($this->paymentIntentHelper->isSuccessful($paymentIntent ?? $setupIntent) ||
+                $this->paymentIntentHelper->requiresOfflineAction($paymentIntent ?? $setupIntent) ||
+                $this->paymentIntentHelper->isAsyncProcessing($paymentIntent ?? $setupIntent))
             {
                 $redirectUrl = $this->multishippingHelper->getFinalRedirectUrl($quote->getId());
                 return $this->redirect($redirectUrl);
@@ -116,20 +126,30 @@ class Index implements ActionInterface
         }
         else
         {
-            $this->paymentElement->load($paymentIntentId, 'payment_intent_id');
+            if ($paymentIntentId)
+                $this->paymentElement->load($paymentIntentId, 'payment_intent_id');
+            else
+                $this->paymentElement->load($setupIntentId, 'setup_intent_id');
+
             $orderIncrementId = $this->paymentElement->getOrderIncrementId();
+
+            if (!$orderIncrementId)
+            {
+                // If this ever hits, there is a bug with saving the order increment ID in the payment element table.
+                $orderIncrementId = $this->checkoutSession->getLastRealOrderId();
+            }
 
             // This hits on the multishipping checkout when a redirect-based payment method like PayPal is used.
             if (empty($orderIncrementId))
                 return $this->success();
 
-            $order = $this->orderFactory->create()->loadByIncrementId($orderIncrementId);
-            if (!$order->getId())
+            $order = $this->orderHelper->loadOrderByIncrementId($orderIncrementId);
+            if (!$order)
                 return $this->error(__("Your order #%1 could not be placed. Please contact us for assistance.", $orderIncrementId));
 
-            if ($this->paymentIntentHelper->isSuccessful($paymentIntent) ||
-                $this->paymentIntentHelper->requiresOfflineAction($paymentIntent) ||
-                $this->paymentIntentHelper->isAsyncProcessing($paymentIntent))
+            if ($this->paymentIntentHelper->isSuccessful($paymentIntent ?? $setupIntent) ||
+                $this->paymentIntentHelper->requiresOfflineAction($paymentIntent ?? $setupIntent) ||
+                $this->paymentIntentHelper->isAsyncProcessing($paymentIntent ?? $setupIntent))
             {
                 return $this->success($order);
             }
@@ -206,12 +226,6 @@ class Index implements ActionInterface
         }
 
         return $this->success($order);
-    }
-
-    private function isMultiShipping()
-    {
-        $quote = $this->checkoutSession->getQuote();
-        return $quote && $quote->getIsMultiShipping();
     }
 
     protected function success($order = null)

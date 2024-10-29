@@ -451,6 +451,10 @@ define(
                             self.showError($t("The payment methods could not be deleted: %1").replace("%1", e.message));
                         }
                     }
+                    else if (response && response.responseJSON && response.responseJSON.message)
+                    {
+                        self.showError(response.responseJSON.message);
+                    }
                     else
                     {
                         self.showError($t("The payment methods could not be deleted: %1").replace("%1", response));

@@ -254,7 +254,8 @@
                 </select>
             </formElements>
         </field>
-        <field name="prorate_first_payment" formElement="checkbox">
+        <!-- Disabled in v4.1 -->
+        <!-- <field name="prorate_first_payment" formElement="checkbox">
             <argument name="data" xsi:type="array">
                 <item name="config" xsi:type="array">
                     <item name="sortOrder" xsi:type="number">196</item>
@@ -279,7 +280,7 @@
                     </settings>
                 </checkbox>
             </formElements>
-        </field>
+        </field> -->
 
         <field name="upgrades_downgrades" formElement="checkbox">
             <argument name="data" xsi:type="array">
@@ -390,7 +391,8 @@
                 </checkbox>
             </formElements>
         </field>
-        <field name="prorate_upgrades" formElement="checkbox">
+        <!-- Disabled in v4.1 -->
+        <!-- <field name="prorate_upgrades" formElement="checkbox">
             <argument name="data" xsi:type="array">
                 <item name="config" xsi:type="array">
                     <item name="rawOptions" xsi:type="boolean">true</item>
@@ -513,6 +515,6 @@
                     </settings>
                 </checkbox>
             </formElements>
-        </field>
+        </field> -->
     </fieldset>
 </form>

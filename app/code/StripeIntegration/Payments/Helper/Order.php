@@ -15,6 +15,7 @@ class Order
     private $logger;
     private $tokenHelper;
     private $orderCollectionFactory;
+    private $discountHelper;
 
     public function __construct(
         \Magento\Tax\Api\OrderTaxManagementInterface $orderTaxManagement,
@@ -25,7 +26,8 @@ class Order
         \Magento\Sales\Model\ResourceModel\Order\CollectionFactory $orderCollectionFactory,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \StripeIntegration\Payments\Helper\Logger $logger,
-        \StripeIntegration\Payments\Helper\Token $tokenHelper
+        \StripeIntegration\Payments\Helper\Token $tokenHelper,
+        \StripeIntegration\Payments\Helper\Discount $discountHelper
     )
     {
         $this->orderTaxManagement = $orderTaxManagement;
@@ -37,6 +39,7 @@ class Order
         $this->subscriptionProductFactory = $subscriptionProductFactory;
         $this->logger = $logger;
         $this->tokenHelper = $tokenHelper;
+        $this->discountHelper = $discountHelper;
     }
 
     /**
@@ -150,6 +153,11 @@ class Order
         {
             return null;
         }
+    }
+
+    public function getOrdersByQuoteId($quoteId)
+    {
+        return $this->loadOrdersByQuoteId($quoteId);
     }
 
     public function loadOrdersByQuoteId($quoteId)
@@ -299,6 +307,9 @@ class Order
 
     public function getTransactionId($order)
     {
+        if (!$order || !$order->getPayment())
+            return null;
+
         $transactionId = $order->getPayment()->getLastTransId();
         $transactionId = $this->tokenHelper->cleanToken($transactionId);
 
@@ -316,5 +327,35 @@ class Order
             return null;
 
         return $transactionId;
+    }
+
+    public function getExpiringCoupon($order)
+    {
+        if (empty($order))
+            return null;
+
+        $discountRules = $this->discountHelper->getDiscountRules($order->getAppliedRuleIds());
+
+        if (count($discountRules) > 1)
+        {
+            $this->logger->logError("Could not apply discount coupon: Multiple cart price rules were applied on the cart. Only one can be applied on subscription carts.");
+            return null;
+        }
+
+        if (empty($discountRules))
+        {
+            return null;
+        }
+
+        $couponCode = $order->getCouponCode() ?? "rule_id_" . $discountRules[0]->getRuleId();
+        $discountRules[0]->setCouponCode($couponCode);
+        return $discountRules[0];
+    }
+
+    public function removeTransactions($order)
+    {
+        $order->getPayment()->setLastTransId(null);
+        $order->getPayment()->setTransactionId(null);
+        $order->getPayment()->save();
     }
 }

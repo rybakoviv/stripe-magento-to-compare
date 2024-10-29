@@ -5,14 +5,12 @@ namespace StripeIntegration\Payments\Block\Adminhtml;
 class SelectPaymentMethod extends \Magento\Backend\Block\Widget\Form\Generic
 {
     protected $_template = 'form/select_payment_method.phtml';
-    private $initParams;
     private $paymentMethodHelper;
     private $paymentsConfig;
     private $customer;
     private $sessionQuote;
 
     public function __construct(
-        \StripeIntegration\Payments\Helper\InitParams $initParams,
         \StripeIntegration\Payments\Helper\Generic $helper,
         \StripeIntegration\Payments\Helper\PaymentMethod $paymentMethodHelper,
         \StripeIntegration\Payments\Model\Config $paymentsConfig,
@@ -23,8 +21,6 @@ class SelectPaymentMethod extends \Magento\Backend\Block\Widget\Form\Generic
         array $data = []
     ) {
         parent::__construct($context, $registry, $formFactory, $data);
-
-        $this->initParams = $initParams;
         $this->paymentMethodHelper = $paymentMethodHelper;
         $this->paymentsConfig = $paymentsConfig;
         $this->sessionQuote = $sessionQuote;
@@ -87,10 +83,5 @@ class SelectPaymentMethod extends \Magento\Backend\Block\Widget\Form\Generic
             return "http://dashboard.stripe.com/test/customers/" . $this->customer->getStripeId();
         else
             return "http://dashboard.stripe.com/customers/" . $this->customer->getStripeId();
-    }
-
-    public function getStripeParams()
-    {
-        return $this->initParams->getAdminParams();
     }
 }

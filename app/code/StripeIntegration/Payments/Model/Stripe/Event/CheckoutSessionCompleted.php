@@ -56,22 +56,15 @@ class CheckoutSessionCompleted
         // A subscription with a start date might have been purchased
         $this->processSubscriptionPhases($order, $object);
 
-        if (!empty($object['subscription']) && !empty($object['setup_intent']))
-        {
-            // A trial subscription has been purchased
-            $subscription = $this->config->getStripeClient()->subscriptions->retrieve($object['subscription']);
-            $this->webhooksHelper->processTrialingSubscriptionOrder($order, $subscription);
-        }
-
         if (!empty($object['customer']))
         {
             $order->getPayment()->setAdditionalInformation('customer_stripe_id', $object['customer']);
             $order->getPayment()->save();
         }
 
-
         if (!empty($object['setup_intent']))
         {
+            // Hits when the payment action is order, and when a subscription with a start date is purchased
             $setupIntent = $this->config->getStripeClient()->setupIntents->retrieve($object['setup_intent']);
             if (!empty($setupIntent->payment_method))
             {
@@ -82,7 +75,7 @@ class CheckoutSessionCompleted
         }
     }
 
-    public function processSubscriptionPhases($order, array $object)
+    private function processSubscriptionPhases($order, array $object)
     {
         if (empty($object['subscription']))
         {
@@ -109,7 +102,7 @@ class CheckoutSessionCompleted
         $subscriptionScheduleModel->createFromSubscription($object['subscription'], $startDateModel);
 
         $order->getPayment()->setAdditionalInformation('subscription_schedule_id', $subscriptionScheduleModel->getId());
-        $order->getPayment()->save(); // Saving the order instead could cause webhooks race conditions
+        $order->getPayment()->save(); // Saving the payment instead of the order, because that could cause webhooks race conditions
 
         return true;
     }

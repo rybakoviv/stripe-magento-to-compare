@@ -29,6 +29,22 @@ class ClearTestData extends \PHPUnit\Framework\TestCase
 
     /**
      * @magentoDbIsolation enabled
+     * @magentoDataFixture ../../../../app/code/StripeIntegration/Payments/Test/Integration/_files/Data/ApiKeysLegacy.php
+     */
+    public function testClearTestDataLegacy()
+    {
+        try
+        {
+            $this->clear();
+        }
+        catch (\Exception $e)
+        {
+            // Ignore
+        }
+    }
+
+    /**
+     * @magentoDbIsolation enabled
      * @magentoDataFixture ../../../../app/code/StripeIntegration/Payments/Test/Integration/_files/Data/ApiKeysUK.php
      */
     public function testClearTestDataUK()

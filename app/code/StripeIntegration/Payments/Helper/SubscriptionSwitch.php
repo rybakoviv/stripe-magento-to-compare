@@ -18,12 +18,14 @@ class SubscriptionSwitch
     private $subscriptionsHelper;
     private $paymentsHelper;
     private $quoteHelper;
+    private $subscriptionProductFactory;
 
     public function __construct(
         \StripeIntegration\Payments\Helper\Generic $paymentsHelper,
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
         \StripeIntegration\Payments\Model\Config $config,
+        \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \Magento\Framework\DB\TransactionFactory $transactionFactory,
         \StripeIntegration\Payments\Helper\RecurringOrder $recurringOrder,
         \StripeIntegration\Payments\Model\Stripe\SubscriptionFactory $stripeSubscriptionFactory
@@ -36,6 +38,7 @@ class SubscriptionSwitch
         $this->transactionFactory = $transactionFactory;
         $this->recurringOrder = $recurringOrder;
         $this->stripeSubscriptionFactory = $stripeSubscriptionFactory;
+        $this->subscriptionProductFactory = $subscriptionProductFactory;
     }
 
     // This is called once, it loads all subscriptions from all configured Stripe accounts
@@ -89,10 +92,10 @@ class SubscriptionSwitch
         if (!$fromProduct->getId() || !$toProduct->getId())
             throw new GenericException("Invalid subscription product specified");
 
-        if (!$this->subscriptionsHelper->isSubscriptionOptionEnabled($fromProduct->getId()))
+        if (!$this->subscriptionProductFactory->create()->fromProductId($fromProduct->getId())->isSubscriptionProduct())
             throw new GenericException($this->fromProduct->getName() . " is not a subscription product");
 
-        if (!$this->subscriptionsHelper->isSubscriptionOptionEnabled($toProduct->getId()))
+        if (!$this->subscriptionProductFactory->create()->fromProductId($toProduct->getId())->isSubscriptionProduct())
             throw new GenericException($this->toProduct->getName() . " is not a subscription product");
 
         if (!$this->isSubscriptionActive($order->getStore()->getId(), $order->getIncrementId(), $fromProduct->getId()))
@@ -163,11 +166,13 @@ class SubscriptionSwitch
 
         // Create Order From Quote
         $order = $this->recurringOrder->quoteManagement->submit($quote);
-        $order->setState('closed')->setStatus('closed');
         $this->transaction->addObject($order);
 
         // Cancel the newly created order
-        $this->cancel($order);
+        $order->cancel();
+        $order->setState('closed')->setStatus('closed');
+        $comment = __("This order has been automatically closed because no payment has been collected for it. It can only be used as a billing details reference for the subscription items in the order. The subscription is still active and a new order will be created when it renews.");
+        $order->addStatusToHistory($status = false, $comment, $isCustomerNotified = false);
 
         // Depreciate the old order
         $comment = __("The billing details for a subscription on this order have changed. Please see order #%1 for information on the new billing details.", $order->getIncrementId());
@@ -175,27 +180,10 @@ class SubscriptionSwitch
         $this->transaction->addObject($originalOrder);
 
         // Update the subscription price
-        $subscription = $this->subscriptionsHelper->updateSubscriptionPriceFromOrder($subscription, $order, $quote);
+        $subscription = $this->subscriptionsHelper->updateSubscriptionPriceFromOrder($subscription, $order);
         $order->getPayment()->setAdditionalInformation("subscription_id", $subscription->id);
 
         return $order;
-    }
-
-    protected function cancel($order)
-    {
-        // No invoices have been created
-        if ($order->canCancel())
-        {
-            $comment = __("This order has been automatically canceled because no payment has been collected for it. It can only be used as a billing details reference for the subscription items in the order. The subscription is still active and a new order will be created when it renews.");
-            $order->addStatusToHistory($status = \Magento\Sales\Model\Order::STATE_CANCELED, $comment, $isCustomerNotified = false);
-        }
-        // Invoices exist
-        else
-        {
-            $comment = __("This order will be automatically closed because no payment has been collected for it. It can only be used as a billing details reference for the subscription items in the order. The subscription is still active and a new order will be created when it renews.");
-            $order->addStatusToHistory($status = false, $comment, $isCustomerNotified = false);
-            $this->paymentsHelper->cancelOrCloseOrder($order, true, true);
-        }
     }
 
     protected function setTransactionDetailsFor($order, $transactionId)

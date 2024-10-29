@@ -9,6 +9,7 @@ use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\View\Result\PageFactory;
 use StripeIntegration\Payments\Helper\Generic;
 use StripeIntegration\Payments\Exception\PaymentMethodInUse;
+use StripeIntegration\Payments\Exception\InvalidPaymentMethod;
 
 class PaymentMethods implements ActionInterface
 {
@@ -74,7 +75,7 @@ class PaymentMethods implements ActionInterface
             else
                 $this->helper->addSuccess(__("The payment method has been deleted."));
         }
-        catch (PaymentMethodInUse $e)
+        catch (PaymentMethodInUse|InvalidPaymentMethod $e)
         {
             $this->helper->addError($e->getMessage());
             return $this->redirect('stripe/customer/paymentmethods');

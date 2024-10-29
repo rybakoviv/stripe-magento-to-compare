@@ -309,6 +309,8 @@
     </table>
     <table name="quote" resource="default" engine="innodb">
         <column name="is_used_for_recurring_orders" xsi:type="boolean" default="false" comment="Added by the Stripe module"/>
+        <column name="initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription initial fee tax"/>
+        <column name="base_initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee tax"/>
         <index referenceId="QUOTE_IS_USED_FOR_RECURRING_ORDERS" indexType="btree">
             <column name="is_used_for_recurring_orders"/>
         </index>
@@ -323,21 +325,31 @@
         <column name="base_initial_fee" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee"/>
         <column name="initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription initial fee tax"/>
         <column name="base_initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee tax"/>
+        <column name="stripe_original_subscription_price" xsi:type="decimal" scale="4" precision="20" unsigned="false" nullable="true" comment="Stripe original subscription price"/>
+        <column name="stripe_base_original_subscription_price" xsi:type="decimal" scale="4" precision="20" unsigned="false" nullable="true" comment="Stripe base original subscription price"/>
     </table>
     <table name="quote_item" resource="default" engine="innodb">
         <column name="initial_fee" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription initial fee"/>
         <column name="base_initial_fee" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee"/>
         <column name="initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription initial fee tax"/>
         <column name="base_initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee tax"/>
+        <column name="stripe_original_subscription_price" xsi:type="decimal" scale="4" precision="20" unsigned="false" nullable="true" comment="Stripe original subscription price"/>
+        <column name="stripe_base_original_subscription_price" xsi:type="decimal" scale="4" precision="20" unsigned="false" nullable="true" comment="Stripe base original subscription price"/>
     </table>
     <table name="sales_order" resource="sales" comment="Sales Flat Order">
         <column name="stripe_radar_risk_score" xsi:type="int" nullable="true" identity="false" comment="Stripe Radar Risk Score"/>
         <column name="stripe_radar_risk_level" xsi:type="varchar" nullable="true" length="155" default="NA" comment="Stripe Radar Risk Level"/>
+        <column name="stripe_payment_method_type" xsi:type="varchar" nullable="true" length="255" comment="Stripe Payment method Type"/>
+        <column name="initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription initial fee tax"/>
+        <column name="base_initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee tax"/>
         <index referenceId="SALES_ORDER_ENTITY_STRIPE_RADAR_RISK_SCORE" indexType="btree">
             <column name="stripe_radar_risk_score"/>
         </index>
         <index referenceId="SALES_ORDER_ENTITY_STRIPE_RADAR_RISK_LEVEL" indexType="btree">
             <column name="stripe_radar_risk_level"/>
+        </index>
+        <index referenceId="SALES_ORDER_ENTITY_STRIPE_PAYMENT_METHOD_TYPE" indexType="btree">
+            <column name="stripe_payment_method_type"/>
         </index>
     </table>
     <table name="stripe_payment_methods" resource="default" engine="innodb" comment="Stripe Payment Methods">
@@ -361,8 +373,19 @@
     <table name="sales_order_grid" resource="sales" comment="Sales Flat Order Grid">
         <column name="stripe_radar_risk_score" xsi:type="int" nullable="true" identity="false" comment="Stripe Radar Risk Score"/>
         <column name="stripe_radar_risk_level" xsi:type="varchar" nullable="true" length="155" default="NA" comment="Stripe Radar Risk Level"/>
+        <column name="stripe_payment_method_type" xsi:type="varchar" nullable="true" length="255" comment="Stripe Payment method Type"/>
+        <column name="initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription initial fee tax"/>
+        <column name="base_initial_fee_tax" xsi:type="decimal" scale="4" precision="10" unsigned="true" nullable="true" comment="Stripe subscription base initial fee tax"/>
+        <index referenceId="SALES_ORDER_ENTITY_STRIPE_RADAR_RISK_SCORE" indexType="btree">
+            <column name="stripe_radar_risk_score"/>
+        </index>
+        <index referenceId="SALES_ORDER_ENTITY_STRIPE_RADAR_RISK_LEVEL" indexType="btree">
+            <column name="stripe_radar_risk_level"/>
+        </index>
+        <index referenceId="SALES_ORDER_ENTITY_STRIPE_PAYMENT_METHOD_TYPE" indexType="btree">
+            <column name="stripe_payment_method_type"/>
+        </index>
     </table>
-
     <table name="stripe_account" resource="default" engine="innodb">
         <column name="id" xsi:type="int" identity="true" unsigned="true" nullable="false" comment="Entity ID" />
         <column name="account_id" xsi:type="varchar" length="255" nullable="false" comment="Stripe account ID" />

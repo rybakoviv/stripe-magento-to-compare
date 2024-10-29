@@ -1,5 +1,5 @@
 <h4>
-    <span class="stripe-method-title"><?= __('Stripe - %1', $block->getTitle()); //phpcs:ignore ?></span>
+    <span class="stripe-method-title"><?= __('Stripe - %1', $block->escapeHtml($block->getTitle())); //phpcs:ignore ?></span>
 
     <?php if (!empty($block->getPaymentMethodCode())): ?>
     <span class="stripe-payment-method">
@@ -73,7 +73,7 @@
 
     <?php if (!empty($block->getFormattedNewSubscriptionAmount())): ?>
     <tr>
-        <th><?= __('Current subscription amount'); //phpcs:ignore ?></th>
+        <th><?= __('New subscription amount'); //phpcs:ignore ?></th>
         <td class="stripe-subscription-amount">
             <?= $block->getFormattedNewSubscriptionAmount(); //phpcs:ignore ?>
         </td>
@@ -82,9 +82,8 @@
 
     <?php if (!empty($block->getNewSubscriptionOrderIncrementId())): ?>
     <tr>
-        <th><?= __('New subscription amount'); //phpcs:ignore ?></th>
+        <th><?= __('New subscription order'); //phpcs:ignore ?></th>
         <td class="stripe-subscription-amount">
-            <?= __("Please see order"); //phpcs:ignore ?>
             <a href="<?= $block->getSubscriptionOrderUrl($block->getNewSubscriptionOrderIncrementId()); //phpcs:ignore ?>" target="_blank">
                 #<?= $block->getNewSubscriptionOrderIncrementId(); //phpcs:ignore ?>
             </a>

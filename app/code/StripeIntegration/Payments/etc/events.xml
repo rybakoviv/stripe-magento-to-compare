@@ -17,6 +17,9 @@
     <event name="sales_quote_collect_totals_before">
         <observer name="stripe_payments_sales_quote_collect_totals_before" instance="StripeIntegration\Payments\Observer\QuoteObserver"/>
     </event>
+    <event name="sales_quote_merge_before">
+        <observer name="stripe_payments_sales_quote_merge_before" instance="StripeIntegration\Payments\Observer\SalesQuoteMergeBeforeObserver"/>
+    </event>
 
     <event name="payment_method_is_active">
         <observer name="stripe_payments_method_active" instance="StripeIntegration\Payments\Observer\PaymentMethodActiveObserver" />
@@ -26,6 +29,13 @@
     </event>
     <event name="customer_save_after_data_object">
         <observer name="stripe_customer_save_after_data_object" instance="StripeIntegration\Payments\Observer\CustomerDetailsChanged" />
+    </event>
+
+    <event name="sales_model_service_quote_submit_success">
+        <observer name="stripe_payments_quote_submit_success" instance="StripeIntegration\Payments\Observer\AfterQuoteSubmit" />
+    </event>
+    <event name="sales_model_service_quote_submit_failure">
+        <observer name="stripe_payments_quote_submit_failure" instance="StripeIntegration\Payments\Observer\AfterQuoteSubmit" />
     </event>
 
     <!-- Before remove from cart -->
@@ -46,8 +56,18 @@
     <event name="stripe_payments_currency_switch">
         <observer name="update_initial_fee_currency_switch" instance="StripeIntegration\Payments\Observer\CurrencySwitchObserver" />
     </event>
-    <event name="sales_quote_address_collect_totals_after">
-        <observer name="add_initial_fee_tax" instance="StripeIntegration\Payments\Observer\AddInitialFeeTaxObserver" />
+    <event name="stripe_tax_additional_fee_quote">
+        <observer name="add_initial_fee_to_stripe_tax_call" instance="StripeIntegration\Payments\Observer\AddInitialFeeToStripeQuoteCalculation" />
+    </event>
+    <event name="stripe_tax_additional_fee_invoice">
+        <observer name="add_initial_fee_to_stripe_invoice_tax_call" instance="StripeIntegration\Payments\Observer\AddInitialFeeToStripeInvoiceCalculation" />
+    </event>
+    <event name="stripe_tax_additional_fee_creditmemo">
+        <observer name="add_initial_fee_to_stripe_refund_tax_call" instance="StripeIntegration\Payments\Observer\AddInitialFeeToStripeRefundCalculation" />
+    </event>
+
+    <event name="sales_model_service_quote_submit_before">
+        <observer name="add_initial_fee_tax_to_order" instance="StripeIntegration\Payments\Observer\AddInitialFeeTaxToOrderObserver" />
     </event>
 
     <!-- Webhooks -->

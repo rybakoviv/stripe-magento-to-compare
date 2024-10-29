@@ -103,27 +103,50 @@ class InvoicePaymentSucceeded
         /** @var \Stripe\StripeObject $invoice */
         $invoice = $this->config->getStripeClient()->invoices->retrieve($invoiceId, $invoiceParams);
 
-        if ($this->isSubscriptionUpdate($object) && !$this->isPhasedSubscriptionUpdate($order))
+        if (empty($invoice->subscription->id) || empty($object["billing_reason"]))
         {
-            // The event will arrive before the order is saved to the database. $order is likely the original order before
-            // the subscription was updated. So don't change any order state here. Use an after order saved observer instead.
-            return;
+            return; // This is not a subscription invoice, it might have been created with Stripe Billing payment method from the admin area
         }
 
-        $isNewSubscriptionOrder = (!empty($object["billing_reason"]) && $object["billing_reason"] == "subscription_create");
+        $subscriptionModel = $this->subscriptionFactory->create()->load($invoice->subscription->id, "subscription_id");
+
+        switch ($object["billing_reason"])
+        {
+            case "subscription_cycle":
+                $isNewSubscriptionOrder = false;
+                break;
+
+            case "subscription_create":
+                $isNewSubscriptionOrder = true;
+                break;
+
+            case "manual":
+            case "upcoming":
+                // Not a subscription
+                return;
+
+            case "subscription_update":
+            case "subscription_threshold":
+                $isNewSubscriptionOrder = $subscriptionModel->isNewSubscription();
+                return;
+
+            default:
+                throw new WebhookException(__("Unknown billing reason: %1", $object["billing_reason"]));
+        }
+
         $isSubscriptionReactivation = $this->isSubscriptionReactivation($order);
+
+        $subscriptionId = $invoice->subscription->id;
+        if (!$subscriptionModel)
+        {
+            $subscriptionModel = $this->subscriptionFactory->create();
+        }
+        $subscriptionModel->initFrom($invoice->subscription, $order)->save();
 
         switch ($paymentMethod)
         {
             case 'stripe_payments':
             case 'stripe_payments_express':
-
-                if (empty($invoice->subscription->id))
-                    break; // This is not a subscription invoice, it might have been created with Stripe Billing payment method from the admin area
-
-                $subscriptionId = $invoice->subscription->id;
-                $subscriptionModel = $this->subscriptionFactory->create()->load($subscriptionId, "subscription_id");
-                $subscriptionModel->initFrom($invoice->subscription, $order)->save();
 
                 $updateParams = [];
 
@@ -175,8 +198,7 @@ class InvoicePaymentSucceeded
                     {
                         // With Stripe Checkout, the Payment Intent description and metadata can be set only
                         // after the payment intent is confirmed and the subscription is created.
-                        $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
-                        $params = $this->paymentIntentFactory->create()->getParamsFrom($quote, $order, $invoice->payment_intent->payment_method);
+                        $params = $this->paymentIntentFactory->create()->getParamsFrom($order, $invoice->payment_intent->payment_method);
                         $updateParams = $this->checkoutSessionHelper->getPaymentIntentUpdateParams($params, $invoice->payment_intent, $filter = ["description", "metadata"]);
                         $this->config->getStripeClient()->paymentIntents->update($invoice->payment_intent->id, $updateParams);
                         $invoice = $this->config->getStripeClient()->invoices->retrieve($invoiceId, $invoiceParams);
@@ -195,11 +217,6 @@ class InvoicePaymentSucceeded
                         }
                         $this->helper->setProcessingState($order, __("Trial subscription started."));
                         $this->orderHelper->saveOrder($order);
-                    }
-
-                    if ($invoice->status == "paid")
-                    {
-                        $this->creditmemoHelper->refundUnderchargedOrder($order, $invoice->amount_paid, $invoice->currency);
                     }
                 }
                 else // Is recurring subscription order
@@ -227,42 +244,6 @@ class InvoicePaymentSucceeded
         {
             $this->subscriptionReactivationCollection->deleteByOrderIncrementId($order->getIncrementId());
         }
-    }
-
-    private function isSubscriptionUpdate($object)
-    {
-        if (empty($object['billing_reason']))
-            return false;
-
-        return $object['billing_reason'] == 'subscription_update';
-    }
-
-    public function isPhasedSubscriptionUpdate($order)
-    {
-        if (!$order->getPayment()->getAdditionalInformation("subscription_schedule_id"))
-            return false;
-
-        try
-        {
-            // Get the subscription schedule
-            $scheduleId = $order->getPayment()->getAdditionalInformation("subscription_schedule_id");
-            $schedule = $this->config->getStripeClient()->subscriptionSchedules->retrieve($scheduleId, []);
-        }
-        catch (\Exception $e)
-        {
-            return false;
-        }
-
-        // Check if the subscription has just entered a new phase
-        if (empty($schedule->current_phase->start_date))
-            return false;
-
-        // Check if the start date is within 12 hours. Large diff to compensate for delayed webhook arrival
-        $diff = time() - $schedule->current_phase->start_date;
-        if ($diff > 43200)
-            return false;
-
-        return true;
     }
 
     private function isSubscriptionReactivation($order)

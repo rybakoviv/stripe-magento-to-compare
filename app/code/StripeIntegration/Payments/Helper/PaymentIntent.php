@@ -26,7 +26,6 @@ class PaymentIntent
     private $stripePaymentMethodFactory;
     private $areaCodeHelper;
     private $urlHelper;
-    private $config;
     private $paymentMethodOptionsService;
 
     public function __construct(
@@ -37,7 +36,6 @@ class PaymentIntent
         \StripeIntegration\Payments\Helper\AreaCode $areaCodeHelper,
         \StripeIntegration\Payments\Helper\Url $urlHelper,
         \StripeIntegration\Payments\Model\Stripe\PaymentMethodFactory $stripePaymentMethodFactory,
-        \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Service\PaymentMethodOptionsService $paymentMethodOptionsService
     )
     {
@@ -48,7 +46,6 @@ class PaymentIntent
         $this->areaCodeHelper = $areaCodeHelper;
         $this->urlHelper = $urlHelper;
         $this->stripePaymentMethodFactory = $stripePaymentMethodFactory;
-        $this->config = $config;
         $this->paymentMethodOptionsService = $paymentMethodOptionsService;
     }
 
@@ -60,6 +57,7 @@ class PaymentIntent
 
         $savePaymentMethod = null;
         $paymentMethod = null;
+        $isPaymentMethodSaved = false;
         if ($order->getPayment()->getAdditionalInformation("token"))
         {
             // We are using a saved payment method token
@@ -69,6 +67,7 @@ class PaymentIntent
             if (!empty($paymentMethod->customer))
             {
                 $savePaymentMethod = false;
+                $isPaymentMethodSaved = true;
             }
         }
         else if ($order->getPayment()->getAdditionalInformation("confirmation_token"))
@@ -92,16 +91,17 @@ class PaymentIntent
 
         if ($this->areaCodeHelper->isAdmin())
         {
+            if ($order->getPayment()->getAdditionalInformation("save_payment_method") && !$isPaymentMethodSaved)
+            {
+                // Override the existing value
+                $confirmParams["payment_method_options"]["card"]["setup_future_usage"] = "off_session";
+            }
+
             if (!$this->cache->load("no_moto_gate"))
             {
                 $confirmParams["payment_method_options"]["card"]["moto"] = "true";
-                if ($order->getPayment()->getAdditionalInformation("save_payment_method"))
-                {
-                    // Override the existing value
-                    $confirmParams["payment_method_options"]["card"]["setup_future_usage"] = "off_session";
-                }
             }
-            else
+            else if ($isPaymentMethodSaved)
             {
                 $confirmParams["off_session"] = true;
             }
@@ -119,6 +119,35 @@ class PaymentIntent
         }
 
         return $confirmParams;
+    }
+
+    public function getAdminConfirmParams($order, $paymentIntent)
+    {
+        $params = $this->getConfirmParams($order, $paymentIntent);
+
+        $paymentMethod = $this->stripePaymentMethodFactory->create()->fromPaymentMethodId($params['payment_method'])->getStripeObject();
+        $isCard = in_array($paymentMethod->type, ["card", "link"]);
+        $moto = isset($params['payment_method_options']['card']['moto']) ? $params['payment_method_options']['card']['moto'] : false;
+
+        if (isset($params['payment_method_options']))
+        {
+            // We don't want to authorize only and we don't want to setup future usage, but we want to keep the moto parameter
+            unset($params["payment_method_options"]);
+        }
+
+        if ($isCard && $moto)
+        {
+            $params['payment_method_options']['card']['moto'] = $moto;
+        }
+        else
+        {
+            $params['off_session'] = true;
+        }
+
+        if (isset($params['use_stripe_sdk']))
+            unset($params['use_stripe_sdk']);
+
+        return $params;
     }
 
     public function getMultishippingConfirmParams($paymentMethodId, $paymentIntent)
@@ -308,11 +337,6 @@ class PaymentIntent
         $remoteAddress = $this->remoteAddress->getRemoteAddress();
         $userAgent = $this->httpHeader->getHttpUserAgent();
         $unsupportedMethods = ['afterpay_clearpay', 'blik'];
-
-        if (empty($intent->setup_future_usage))
-        {
-            $unsupportedMethods[] = 'paypal';
-        }
 
         if (!$remoteAddress || !$userAgent || empty($paymentMethod->type) || in_array($paymentMethod->type, $unsupportedMethods))
         {

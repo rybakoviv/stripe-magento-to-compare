@@ -35,7 +35,7 @@ class PaymentIntentTest extends \PHPUnit\Framework\TestCase
 
         $order = $this->quote->placeOrder();
 
-        $params = $this->paymentIntentModel->getParamsFrom(null, $order, null);
+        $params = $this->paymentIntentModel->getParamsFrom($order);
 
         $this->assertNotEmpty($params["customer"]);
         $this->assertNotEmpty($params["payment_method"]);

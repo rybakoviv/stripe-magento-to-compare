@@ -6,6 +6,7 @@ use StripeIntegration\Payments\Api\ServiceInterface;
 use StripeIntegration\Payments\Exception\SCANeededException;
 use StripeIntegration\Payments\Exception\InvalidAddressException;
 use StripeIntegration\Payments\Exception\GenericException;
+use Stripe\Exception\InvalidRequestException as StripeInvalidRequestException;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Quote\Api\CartManagementInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
@@ -77,7 +78,6 @@ class Service implements ServiceInterface
     private $localizedToNormalized;
     private $localeHelper;
     private $addressHelper;
-    private $checkoutSessionHelper;
     private $compare;
     private $paymentElement;
     private $paymentIntentHelper;
@@ -137,7 +137,6 @@ class Service implements ServiceInterface
         \StripeIntegration\Payments\Helper\Address $addressHelper,
         \StripeIntegration\Payments\Helper\Locale $localeHelper,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
-        \StripeIntegration\Payments\Helper\Stripe\CheckoutSession $checkoutSessionHelper,
         \StripeIntegration\Payments\Helper\Compare $compare,
         \StripeIntegration\Payments\Helper\Multishipping $multishippingHelper,
         \StripeIntegration\Payments\Helper\InitParams $initParams,
@@ -171,7 +170,6 @@ class Service implements ServiceInterface
         $this->addressHelper = $addressHelper;
         $this->localeHelper = $localeHelper;
         $this->subscriptionsHelper = $subscriptionsHelper;
-        $this->checkoutSessionHelper = $checkoutSessionHelper;
         $this->compare = $compare;
         $this->multishippingHelper = $multishippingHelper;
         $this->initParams = $initParams;
@@ -209,9 +207,9 @@ class Service implements ServiceInterface
         if (empty($checkout->getStripePaymentsCheckoutSessionURL()))
             throw new LocalizedException(__("Sorry, the order could not be placed. Please contact us for more help."));
 
+        $this->restoreQuote();
+
         $sessionURL = $checkout->getStripePaymentsCheckoutSessionURL();
-        $this->checkoutHelper->getCheckout()->restoreQuote();
-        $this->checkoutHelper->getCheckout()->setLastRealOrderId($lastRealOrderId);
         return $sessionURL;
     }
 
@@ -346,10 +344,14 @@ class Service implements ServiceInterface
 
                 // Set Shipping Method
                 if (!empty($result['shippingRate']['id']))
-                    $shipping->setShippingMethod($result['shippingRate']['id'])
-                         ->setCollectShippingRates(true);
+                {
+                    $shipping->setCollectShippingRates(true)->collectShippingRates()
+                        ->setShippingMethod($result['shippingRate']['id']);
+                }
                 else if (empty($shipping->getShippingMethod()))
+                {
                     throw new LocalizedException(__("Could not place order: Please specify a shipping method."));
+                }
             }
 
             // Update totals
@@ -560,61 +562,63 @@ class Service implements ServiceInterface
 
     public function get_checkout_payment_methods($billingAddress, $shippingAddress = null, $shippingMethod = null, $couponCode = null)
     {
-        // try
-        // {
-            $quote = $this->quoteHelper->getQuote();
+        $quote = $this->quoteHelper->getQuote();
 
-            if (!empty($billingAddress))
-                $quote->getBillingAddress()->addData($this->toSnakeCase($billingAddress));
+        if (!empty($billingAddress))
+            $quote->getBillingAddress()->addData($this->toSnakeCase($billingAddress));
 
-            if (!empty($shippingAddress))
-                $quote->getShippingAddress()->addData($this->toSnakeCase($shippingAddress));
+        if (!empty($shippingAddress))
+            $quote->getShippingAddress()->addData($this->toSnakeCase($shippingAddress));
 
-            if (!empty($couponCode))
-                $quote->setCouponCode($couponCode);
-            else
-                $quote->setCouponCode('');
+        if (!empty($couponCode))
+            $quote->setCouponCode($couponCode);
+        else
+            $quote->setCouponCode('');
 
-            $quote->setTotalsCollectedFlag(false);
-            $quote->collectTotals();
-            $this->quoteRepository->save($quote);
+        $quote->setTotalsCollectedFlag(false);
+        $quote->collectTotals();
+        $this->quoteRepository->save($quote);
 
-            $currentCheckoutSessionId = $this->checkoutSessionHelper->getCheckoutSessionIdFromQuote($quote);
-            $checkoutSessionModel = $this->checkoutSessionFactory->create()->fromQuote($quote);
-            $methods = $checkoutSessionModel->getAvailablePaymentMethods($quote);
-            $newCheckoutSessionId = $this->checkoutSessionHelper->getCheckoutSessionIdFromQuote($quote);
-        // }
-        // catch (\Stripe\Exception\InvalidRequestException $e)
-        // {
-        //     return $this->serializer->serialize([
-        //         "error" => __($e->getMessage())
-        //     ]);
-        // }
-        // catch (\Exception $e)
-        // {
-        //     $this->paymentsHelper->logError($e->getMessage(), $e->getTraceAsString());
+        $checkoutSessionModel = $this->checkoutSessionFactory->create()->fromQuote($quote);
+        $shouldPlaceNewOrder = !$checkoutSessionModel->getOrder();
 
-        //     return $this->serializer->serialize([
-        //         "error" => __("Sorry, the selected payment method is not available. Please use a different payment method.")
-        //     ]);
-        // }
-
-        if ($checkoutSessionModel->getOrder() && $currentCheckoutSessionId == $newCheckoutSessionId)
+        if ($checkoutSessionModel->getCheckoutSessionId())
         {
-            $response = [
-                "methods" => $methods,
-                "place_order" => false,
-                "checkout_session_id" => $newCheckoutSessionId
-            ];
+            $params = $checkoutSessionModel->getParamsFromQuote($quote);
+
+            if ($checkoutSessionModel->isComplete())
+            {
+                $shouldPlaceNewOrder = true;
+            }
+            else if ($checkoutSessionModel->hasExpired())
+            {
+                $shouldPlaceNewOrder = true;
+                $checkoutSessionModel->cancelOrder(__("The customer left from the payment page without paying, and the session has expired."));
+            }
+            else if ($checkoutSessionModel->hasChanged($params))
+            {
+                $shouldPlaceNewOrder = true;
+                $checkoutSessionModel->cancelOrder(__("The customer returned from Stripe and changed the cart details."));
+                $checkoutSessionModel->cancelCheckoutSession();
+            }
+            else if ($checkoutSessionModel->needsUpdate($params))
+            {
+                $shouldPlaceNewOrder = true;
+                $checkoutSessionModel->cancelOrder(__("The customer returned from Stripe and changed their email address."));
+                $checkoutSessionModel->cancelCheckoutSession();
+            }
         }
         else
         {
-            $response = [
-                "methods" => $methods,
-                "place_order" => true,
-                "checkout_session_id" => $newCheckoutSessionId
-            ];
+            $checkoutSessionModel->createFromQuote($quote);
+            $shouldPlaceNewOrder = true;
         }
+
+        $response = [
+            "methods" => $checkoutSessionModel->getStripeObject()->payment_method_types,
+            "place_order" => $shouldPlaceNewOrder,
+            "checkout_session_id" => $checkoutSessionModel->getCheckoutSessionId()
+        ];
 
         return $this->serializer->serialize($response);
     }
@@ -627,6 +631,9 @@ class Service implements ServiceInterface
         $quote = $this->quoteHelper->getQuote();
         /** @var \Stripe\Checkout\Session $session */
         $session = $checkoutSessionModel->fromQuote($quote)->getStripeObject();
+
+        if ($checkoutSessionModel->isComplete() || $checkoutSessionModel->hasExpired())
+            return null;
 
         if (empty($session->id))
             return null;
@@ -1054,7 +1061,7 @@ class Service implements ServiceInterface
 
     private function cancelOrder($order, $comment)
     {
-        $this->paymentsHelper->removeTransactions($order);
+        $this->orderHelper->removeTransactions($order);
         $order->addStatusToHistory($status = false, $comment, $isCustomerNotified = false);
         $this->paymentsHelper->cancelOrCloseOrder($order);
 
@@ -1098,10 +1105,10 @@ class Service implements ServiceInterface
     public function add_payment_method($paymentMethodId)
     {
         if (!$this->stripeCustomer->isLoggedIn())
-            throw new GenericException((string)__("The customer is not logged in."));
+            throw new LocalizedException(__("The customer is not logged in."));
 
         if (empty($paymentMethodId))
-            throw new GenericException((string)__("Please specify a payment method ID."));
+            throw new LocalizedException(__("Please specify a payment method ID."));
 
         try
         {
@@ -1124,6 +1131,10 @@ class Service implements ServiceInterface
 
             return $this->serializer->serialize($method);
         }
+        catch (StripeInvalidRequestException|GenericException $e)
+        {
+            throw new CouldNotSaveException(__($e->getMessage()), $e);
+        }
         catch (\Exception $e)
         {
             throw new GenericException((string)__("Could not add payment method: %1.", $e->getMessage()));
@@ -1142,13 +1153,13 @@ class Service implements ServiceInterface
     public function delete_payment_method($paymentMethodId, $fingerprint = null)
     {
         if (!$this->stripeCustomer->isLoggedIn())
-            throw new GenericException((string)__("The customer is not logged in."));
+            throw new LocalizedException(__("The customer is not logged in."));
 
         if (empty($paymentMethodId))
-            throw new GenericException((string)__("Please specify a payment method ID."));
+            throw new LocalizedException(__("Please specify a payment method ID."));
 
         if (!$this->stripeCustomer->getStripeId())
-            throw new GenericException((string)__("The payment method does not exist."));
+            throw new LocalizedException(__("The payment method does not exist."));
 
         try
         {
@@ -1161,7 +1172,7 @@ class Service implements ServiceInterface
         }
         catch (\Exception $e)
         {
-            throw new GenericException((string)__("Could not delete payment method: %1.", $e->getMessage()));
+            throw new CouldNotSaveException(__($e->getMessage()), $e);
         }
     }
 
@@ -1174,7 +1185,7 @@ class Service implements ServiceInterface
     public function list_payment_methods()
     {
         if (!$this->stripeCustomer->isLoggedIn())
-            throw new GenericException((string)__("The customer is not logged in."));
+            throw new LocalizedException(__("The customer is not logged in."));
 
         return $this->serializer->serialize($this->stripeCustomer->getSavedPaymentMethods(null, true));
     }
@@ -1195,15 +1206,15 @@ class Service implements ServiceInterface
             $orderId = $this->checkoutSession->getLastRealOrderId();
 
             if (empty($orderId))
-                throw new GenericException((string)__("The customer does not have an order."));
+                throw new LocalizedException(__("The customer does not have an order."));
 
             $order = $this->orderHelper->loadOrderByIncrementId($orderId);
 
             if (!$order || !$order->getId())
-                throw new GenericException((string)__("The order could not be loaded."));
+                throw new LocalizedException(__("The order could not be loaded."));
 
             if ($order->getQuoteId() != $quote->getId())
-                throw new GenericException((string)__("The order does not match the current quote."));
+                throw new LocalizedException(__("The order does not match the current quote."));
 
             $this->cancelOrder($order, $errorMessage);
         }

@@ -8,6 +8,10 @@
                 <rest_api>card,link</rest_api>
                 <graphql_api></graphql_api>
             </manual_authentication>
+
+            <!-- Instead of incrementing coupon usages before the order is placed, increment after the order is placed. Helps with certain 3DS checkout flows. -->
+            <increment_coupon_usage_after_order_placed>1</increment_coupon_usage_after_order_placed>
+
         </stripe_settings>
         <payment>
             <stripe_payments>
@@ -106,7 +110,7 @@
                 <can_use_checkout>1</can_use_checkout>
                 <can_use_for_multishipping>0</can_use_for_multishipping>
                 <can_refund>1</can_refund>
-                <can_refund_invoice_partial>1</can_refund_invoice_partial>
+                <can_refund_partial_per_invoice>1</can_refund_partial_per_invoice>
                 <can_void>1</can_void>
                 <can_cancel>1</can_cancel>
                 <can_cancel_invoice>1</can_cancel_invoice>

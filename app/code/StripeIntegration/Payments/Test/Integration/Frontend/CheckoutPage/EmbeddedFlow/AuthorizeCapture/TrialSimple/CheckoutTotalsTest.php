@@ -38,16 +38,16 @@ class CheckoutTotalsTest extends \PHPUnit\Framework\TestCase
         $this->assertNotEmpty($uiConfig["payment"]["stripe_payments"]["trialingSubscriptions"]);
         $trialSubscriptionsConfig = $uiConfig["payment"]["stripe_payments"]["trialingSubscriptions"];
 
-        $this->assertEquals($order->getSubtotal(), $trialSubscriptionsConfig["subscriptions_total"], "Subtotal");
-        $this->assertEquals($order->getBaseSubtotal(), $trialSubscriptionsConfig["base_subscriptions_total"], "Base Subtotal");
+        $this->assertEquals(10, $trialSubscriptionsConfig["subscriptions_total"], "Subtotal");
+        $this->assertEquals(10, $trialSubscriptionsConfig["base_subscriptions_total"], "Base Subtotal");
 
-        $this->assertEquals($order->getShippingAmount(), $trialSubscriptionsConfig["shipping_total"], "Shipping");
-        $this->assertEquals($order->getBaseShippingAmount(), $trialSubscriptionsConfig["base_shipping_total"], "Base Shipping");
+        $this->assertEquals(5, $trialSubscriptionsConfig["shipping_total"], "Shipping");
+        $this->assertEquals(5, $trialSubscriptionsConfig["base_shipping_total"], "Base Shipping");
 
-        $this->assertEquals($order->getDiscountAmount(), $trialSubscriptionsConfig["discount_total"], "Discount");
-        $this->assertEquals($order->getBaseDiscountAmount(), $trialSubscriptionsConfig["base_discount_total"], "Base Discount");
+        $this->assertEquals(0, $trialSubscriptionsConfig["discount_total"], "Discount");
+        $this->assertEquals(0, $trialSubscriptionsConfig["base_discount_total"], "Base Discount");
 
-        $this->assertEquals($order->getTaxAmount(), $trialSubscriptionsConfig["tax_total"], "Tax");
-        $this->assertEquals($order->getBaseTaxAmount(), $trialSubscriptionsConfig["tax_total"], "Base Tax");
+        $this->assertEquals(0.83, $trialSubscriptionsConfig["tax_total"], "Tax");
+        $this->assertEquals(0.83, $trialSubscriptionsConfig["tax_total"], "Base Tax");
     }
 }

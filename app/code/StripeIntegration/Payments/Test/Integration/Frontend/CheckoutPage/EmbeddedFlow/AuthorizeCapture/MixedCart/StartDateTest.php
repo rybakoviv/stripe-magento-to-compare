@@ -114,8 +114,9 @@ class StartDateTest extends \PHPUnit\Framework\TestCase
         // The order should be partially refunded
         $order = $this->tests->refreshOrder($order);
         $this->tests->compare($order->getData(),[
-            'total_paid' => $order->getGrandTotal(),
-            'total_refunded' => round(floatval($order->getGrandTotal()) - $expectedChargeAmount / 100, 2)
+            'grand_total' => round($expectedChargeAmount / 100, 2),
+            'total_paid' => round($expectedChargeAmount / 100, 2),
+            'total_refunded' => 0
         ]);
     }
 }

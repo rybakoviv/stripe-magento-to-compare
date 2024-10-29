@@ -50,12 +50,13 @@
         <actionGroup ref="ExternalAuthorizationActionGroup" stepKey="authorizeExternally"/>
 
         <!-- Depending on the payment method, a different number of loading masks may appear and disappear, so we wait a bit for them to complete -->
-        <wait stepKey="waitForOrderPlacement" time="7"/>
+        <wait stepKey="waitForOrderPlacement" time="15"/>
 
         <waitForPageLoad stepKey="waitForSuccessPageToLoad" time="30"/>
 
         <!-- Check if success message is displayed -->
         <waitForElement selector="{{CheckoutSuccessMainSection.successTitle}}" stepKey="waitForSuccessMessage"/>
+        <wait time="5" stepKey="waitForUIToRender"/>
         <see selector="{{CheckoutSuccessMainSection.successTitle}}" userInput="Thank you for your purchase!" stepKey="seeOrderSuccessMessage"/>
     </test>
 </tests>

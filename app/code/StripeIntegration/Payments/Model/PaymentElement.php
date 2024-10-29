@@ -28,7 +28,8 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
     private $setupIntentCollection;
     private $checkoutFlow;
     private $orderValidator;
-    private $tokenHelper;
+    private $errorHelper;
+    private $stripePaymentMethod;
 
     public function __construct(
         \StripeIntegration\Payments\Helper\Data $dataHelper,
@@ -39,10 +40,11 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
         \StripeIntegration\Payments\Helper\PaymentIntent $paymentIntentHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
         \StripeIntegration\Payments\Helper\OrderValidator $orderValidator,
-        \StripeIntegration\Payments\Helper\Token $tokenHelper,
+        \StripeIntegration\Payments\Helper\Error $errorHelper,
         \StripeIntegration\Payments\Model\PaymentIntentFactory $paymentIntentModelFactory,
         \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
+        \StripeIntegration\Payments\Model\Stripe\PaymentMethod $stripePaymentMethod,
         \StripeIntegration\Payments\Model\Stripe\PaymentIntent $stripePaymentIntent,
         \StripeIntegration\Payments\Model\Stripe\PaymentMethodFactory $stripePaymentMethodFactory,
         \StripeIntegration\Payments\Model\ResourceModel\PaymentElement $resourceModel,
@@ -72,8 +74,9 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
         $this->setupIntentCollection = $setupIntentCollection;
         $this->orderValidator = $orderValidator;
         $this->orderHelper = $orderHelper;
-        $this->tokenHelper = $tokenHelper;
+        $this->errorHelper = $errorHelper;
         $this->checkoutFlow = $checkoutFlow;
+        $this->stripePaymentMethod = $stripePaymentMethod;
 
         parent::__construct($context, $registry, $resource, $resourceCollection, $data);
     }
@@ -87,21 +90,17 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
     {
         try
         {
-            $this->orderValidator->validate($order);
+            if (!$this->helper->isMultiShipping())
+            {
+                $this->orderValidator->validate($order);
+            }
         }
         catch (OrderPlacedAndPaidException $e)
         {
-            if ($e->orderAmountMatchesPaymentAmount())
-            {
-                return;
-            }
-            else
-            {
-                $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
-                $quote->setIsActive(false);
-                $this->quoteHelper->saveQuote($quote);
-                return $this->helper->throwError(__("The order has already been placed and paid."));
-            }
+            $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
+            $quote->setIsActive(false);
+            $this->quoteHelper->saveQuote($quote);
+            return $this->helper->throwError(__("The order has already been placed and paid."));
         }
 
         $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
@@ -126,7 +125,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
                 }
 
                 $oldOrder->addStatusToHistory($status = false, $comment, $isCustomerNotified = false);
-                $this->helper->removeTransactions($oldOrder);
+                $this->orderHelper->removeTransactions($oldOrder);
                 $this->helper->cancelOrCloseOrder($oldOrder, true);
             }
         }
@@ -152,8 +151,15 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
 
         // Update any existing subscriptions
         $paymentIntentModel = $this->paymentIntentModelFactory->create();
-        $params = $paymentIntentModel->getParamsFrom($quote, $order);
+        $params = $paymentIntentModel->getParamsFrom($order);
+
+        if (!empty($params['payment_method']))
+        {
+            $this->validatePaymentMethod($params['payment_method']);
+        }
+
         $subscription = $this->subscriptionsHelper->updateSubscriptionFromOrder($order, $this->getSubscriptionId(), $params);
+
         if (!empty($subscription->id))
         {
             $this->updateFromSubscription($subscription);
@@ -218,6 +224,15 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
         $this->setOrderIncrementId($order->getIncrementId());
         $this->setQuoteId($order->getQuoteId());
         $this->resourceModel->save($this);
+    }
+
+    public function validatePaymentMethod($paymentMethodId)
+    {
+        $paymentMethod = $this->stripePaymentMethod->fromPaymentMethodId($paymentMethodId)->getStripeObject();
+        if (!empty($paymentMethod->customer) && $this->customer->getStripeId() && $paymentMethod->customer != $this->customer->getStripeId())
+        {
+            $this->helper->throwError(__("This payment method cannot be used."));
+        }
     }
 
     // This method checks if any subscriptions with start dates are in the cart,
@@ -300,7 +315,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
                     continue;
                 }
                 $order->addStatusToHistory($status = false, $comment, $isCustomerNotified = false);
-                $this->helper->removeTransactions($order);
+                $this->orderHelper->removeTransactions($order);
                 $this->helper->cancelOrCloseOrder($order, true);
 
                 if ($currentOrder->getQuoteId() != $order->getQuoteId())
@@ -514,7 +529,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
             }
             catch (\Stripe\Exception\InvalidRequestException $e)
             {
-                if (!$this->dataHelper->isMOTOError($e->getError()))
+                if (!$this->errorHelper->isMOTOError($e->getError()))
                     throw $e;
 
                 $this->cache->save($value = "1", $key = "no_moto_gate", ["stripe_payments"], $lifetime = 6 * 60 * 60);
@@ -550,7 +565,7 @@ class PaymentElement extends \Magento\Framework\Model\AbstractModel
             }
             catch (\Stripe\Exception\InvalidRequestException $e)
             {
-                if (!$this->dataHelper->isMOTOError($e->getError()))
+                if (!$this->errorHelper->isMOTOError($e->getError()))
                     throw $e;
 
                 $this->cache->save($value = "1", $key = "no_moto_gate", ["stripe_payments"], $lifetime = 6 * 60 * 60);

@@ -6,11 +6,11 @@ class InvoiceUpcoming extends \StripeIntegration\Payments\Model\Stripe\Event\Inv
 {
     public static $newTaxPercent = null;
 
-    protected function getNewTaxPercent($quote, $originalOrderItem)
+    protected function getNewTaxPercent($profile)
     {
         if (self::$newTaxPercent !== null)
             return self::$newTaxPercent;
 
-        return parent::getNewTaxPercent($quote, $originalOrderItem);
+        return parent::getNewTaxPercent($profile);
     }
 }

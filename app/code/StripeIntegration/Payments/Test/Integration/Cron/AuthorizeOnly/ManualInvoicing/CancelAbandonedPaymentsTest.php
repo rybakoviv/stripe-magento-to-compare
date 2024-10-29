@@ -32,6 +32,7 @@ class CancelAbandonedPaymentsTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * @magentoDataFixture ../../../../app/code/StripeIntegration/Payments/Test/Integration/_files/Data/ApiKeysIsolated.php
      * @magentoConfigFixture current_store payment/stripe_payments/payment_flow 0
      * @magentoConfigFixture current_store payment/stripe_payments/payment_action authorize
      */

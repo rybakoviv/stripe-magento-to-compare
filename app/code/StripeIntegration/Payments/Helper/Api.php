@@ -10,18 +10,18 @@ class Api
     private $helper;
     private $config;
     private $paymentIntent;
-    private $quoteFactory;
+    private $stripeClient;
     private $cache;
     private $paymentIntentCollectionFactory;
     private $paymentMethodFactory;
     private $paymentIntentHelper;
 
     public function __construct(
-        \Magento\Quote\Model\QuoteFactory $quoteFactory,
         \Magento\Framework\App\CacheInterface $cache,
         \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Model\PaymentIntent $paymentIntent,
         \StripeIntegration\Payments\Model\Stripe\PaymentMethodFactory $paymentMethodFactory,
+        \StripeIntegration\Payments\Model\Stripe\Client $stripeClient,
         \StripeIntegration\Payments\Model\ResourceModel\PaymentIntent\CollectionFactory $paymentIntentCollectionFactory,
         \StripeIntegration\Payments\Helper\Generic $helper,
         \StripeIntegration\Payments\Helper\PaymentIntent $paymentIntentHelper
@@ -29,7 +29,7 @@ class Api
         $this->helper = $helper;
         $this->config = $config;
         $this->paymentIntent = $paymentIntent;
-        $this->quoteFactory = $quoteFactory;
+        $this->stripeClient = $stripeClient;
         $this->cache = $cache;
         $this->paymentIntentCollectionFactory = $paymentIntentCollectionFactory;
         $this->paymentMethodFactory = $paymentMethodFactory;
@@ -111,17 +111,15 @@ class Api
                 $confirmParams["off_session"] = true;
             }
 
-            $key = "admin_captured_" . $paymentIntent->id;
             try
             {
-                $this->cache->save($value = "1", $key, ["stripe_payments"], $lifetime = 60 * 60);
-                $paymentIntent = $this->paymentIntent->confirm($paymentIntent, $confirmParams);
+                $paymentIntent = $this->stripeClient->adminConfirmPaymentIntent($paymentIntent->id, $confirmParams);
             }
             catch (\Exception $e)
             {
-                $this->cache->remove($key);
-                throw $e;
+                return $this->helper->throwError($e->getMessage());
             }
+
             $this->paymentIntent->processSuccessfulOrder($order, $paymentIntent);
             return $paymentIntent;
         }
@@ -138,10 +136,7 @@ class Api
 
         if ($amount > 0)
         {
-            $quoteId = $order->getQuoteId();
-            $quote = $this->quoteFactory->create()->load($quoteId);
-
-            $params = $this->paymentIntent->getParamsFrom($quote, $order);
+            $params = $this->paymentIntent->getParamsFrom($order);
             $params['capture_method'] = \StripeIntegration\Payments\Model\PaymentIntent::CAPTURE_METHOD_AUTOMATIC;
             $params["customer"] = $customerId;
             $params["amount"] = $this->helper->convertMagentoAmountToStripeAmount($amount, $currency);
@@ -150,38 +145,21 @@ class Api
                 unset($params["payment_method_options"]);
 
             $paymentIntent = $this->config->getStripeClient()->paymentIntents->create($params);
-            $confirmParams = $this->paymentIntentHelper->getConfirmParams($order, $paymentIntent);
-            $confirmParams = $this->filterPaymentMethodOptions($confirmParams);
+            $confirmParams = $this->paymentIntentHelper->getAdminConfirmParams($order, $paymentIntent);
 
-            $key = "admin_captured_" . $paymentIntent->id;
             try
             {
-                $this->cache->save($value = "1", $key, ["stripe_payments"], $lifetime = 60 * 60);
-                $paymentIntent = $this->paymentIntent->confirm($paymentIntent, $confirmParams);
+                $paymentIntent = $this->stripeClient->adminConfirmPaymentIntent($paymentIntent->id, $confirmParams);
             }
             catch (\Exception $e)
             {
-                $this->cache->remove($key);
-                throw $e;
+                return $this->helper->throwError($e->getMessage());
             }
+
             $this->paymentIntent->processSuccessfulOrder($order, $paymentIntent);
             return $paymentIntent;
         }
 
         return null;
-    }
-
-    protected function filterPaymentMethodOptions($params)
-    {
-        if (isset($params['payment_method_options']))
-        {
-            // We don't want to authorize only and we don't want to setup future usage, but we want to keep the moto parameter
-            $moto = isset($params['payment_method_options']['card']['moto']) ? $params['payment_method_options']['card']['moto'] : false;
-            unset($params["payment_method_options"]);
-            if ($moto)
-                $params['payment_method_options']['card']['moto'] = $moto;
-        }
-
-        return $params;
     }
 }

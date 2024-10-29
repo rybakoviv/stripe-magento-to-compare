@@ -1,7 +1,7 @@
 // Copyright © Stripe, Inc
 //
 // @package    StripeIntegration_Payments
-// @version    4.0.8
+// @version    4.1.6
 define(
     [
         'stripejs'
@@ -15,7 +15,7 @@ define(
         return (window.stripe = {
 
             // Properties
-            version: "4.0.8",
+            version: "4.1.6",
             stripeJs: null,
 
             initStripe: function(params, callback)

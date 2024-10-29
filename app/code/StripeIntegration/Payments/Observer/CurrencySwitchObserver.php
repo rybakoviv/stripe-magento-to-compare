@@ -35,13 +35,12 @@ class CurrencySwitchObserver implements ObserverInterface
         if (!$this->config->getConfigData("additional_info", "subscriptions"))
             return;
 
+        $currencyCode = $observer->getCurrencyCode();
+
         $items = $this->paymentsHelper->getSessionQuote()->getAllItems();
         foreach ($items as $item)
         {
-            if (!empty($item->getQtyOptions()))
-                $additionalOptions = $this->helper->getAdditionalOptionsForChildrenOf($item);
-            else
-                $additionalOptions = $this->helper->getAdditionalOptionsForProductId($item->getProductId(), $item);
+            $additionalOptions = $this->helper->getAdditionalOptionsForQuoteItem($item, $currencyCode);
 
             if (!empty($additionalOptions))
             {

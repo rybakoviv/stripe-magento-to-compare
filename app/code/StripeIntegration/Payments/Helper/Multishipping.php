@@ -324,7 +324,9 @@ class Multishipping
             if ($this->config->isAuthorizeOnly())
             {
                 if ($this->config->isAutomaticInvoicingEnabled())
-                    $this->helper->invoicePendingOrder($order, $paymentIntent->id);
+                {
+                    $this->helper->invoiceOrder($order, $paymentIntent->id, \Magento\Sales\Model\Order\Invoice::NOT_CAPTURE, true);
+                }
             }
             else
             {

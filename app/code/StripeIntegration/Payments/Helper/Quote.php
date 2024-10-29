@@ -247,14 +247,6 @@ class Quote
         return $quote;
     }
 
-    public function reCalculateQuoteTotals($quote)
-    {
-        $quote->setTotalsCollectedFlag(false);
-        $quote->collectTotals();
-        $this->saveQuote($quote);
-        return $quote;
-    }
-
     public function hasSubscriptionsWithStartDate($quote = null)
     {
         if (!$quote)
@@ -287,5 +279,143 @@ class Quote
         }
 
         return false;
+    }
+
+    public function hasOnlyTrialSubscriptions($quote = null)
+    {
+        if (!$quote)
+            $quote = $this->getQuote();
+
+        if (!$quote || !$quote->getId())
+            return false;
+
+        $items = $quote->getAllItems();
+        $trialSubscriptions = 0;
+
+        foreach ($items as $item)
+        {
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($item);
+            if (!$subscriptionProductModel->isSubscriptionProduct())
+                return false;
+
+            if (!$subscriptionProductModel->hasTrialPeriod())
+                return false;
+
+            $trialSubscriptions++;
+        }
+
+        return $trialSubscriptions > 0;
+    }
+
+    public function getNonBillableSubscriptionItems($items)
+    {
+        $nonBillableItems = [];
+
+        foreach ($items as $item)
+        {
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($item);
+
+            if (!$subscriptionProductModel->isSubscriptionProduct())
+                continue;
+
+            if (!$subscriptionProductModel->hasZeroInitialOrderPrice())
+                continue;
+
+            if ($item->getParentItem()) // Bundle and configurable subscriptions
+            {
+                $item = $item->getParentItem();
+                $nonBillableItems[] = $item;
+
+                // Get all child products
+                foreach ($items as $item2)
+                {
+                    if ($item2->getParentItemId() == $item->getId())
+                        $nonBillableItems[] = $item2;
+                }
+            }
+            else
+            {
+                $nonBillableItems[] = $item;
+            }
+        }
+
+        return $nonBillableItems;
+    }
+
+    // Checks if the quote has a 100% discount rule, and that the discount will eventually expire
+    public function hasFullyDiscountedSubscriptions($quote)
+    {
+        $items = $quote->getAllItems();
+
+        foreach ($items as $item)
+        {
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($item);
+
+            if (!$subscriptionProductModel->isSubscriptionProduct())
+            {
+                continue;
+            }
+
+            if ($item->getBasePrice() > 0 && $item->getBasePrice() <= $item->getBaseDiscountAmount())
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function reCollectTotals($quote)
+    {
+        $shippingMethod = null;
+        $quote->getBillingAddress()->unsetData('cached_items_all');
+        $quote->getBillingAddress()->unsetData('cached_items_nominal');
+        $quote->getBillingAddress()->unsetData('cached_items_nonnominal');
+        if (!$quote->getIsVirtual())
+        {
+            $shippingMethod = $quote->getShippingAddress()->getShippingMethod();
+            $quote->getShippingAddress()->unsetData('cached_items_all');
+            $quote->getShippingAddress()->unsetData('cached_items_nominal');
+            $quote->getShippingAddress()->unsetData('cached_items_nonnominal');
+            $quote->getShippingAddress()->setCollectShippingRates(true);
+        }
+        foreach ($quote->getAllItems() as $item)
+        {
+            $item->setTaxCalculationPrice(null);
+            $item->setBaseTaxCalculationPrice(null);
+        }
+        $quote->setTotalsCollectedFlag(false);
+        $quote->collectTotals();
+
+        if ($shippingMethod)
+        {
+            // We restore it because when the shipping rates are collected, the shipping method is reset
+            $quote->getShippingAddress()->setShippingMethod($shippingMethod);
+        }
+    }
+
+    public function removeSubscriptions(\Magento\Quote\Api\Data\CartInterface $quote)
+    {
+        $removed = false;
+        $items = $quote->getAllItems();
+        foreach ($items as $item)
+        {
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($item);
+            if ($subscriptionProductModel->isSubscriptionProduct())
+            {
+                if ($item->getParentItem())
+                {
+                    $quote->removeItem($item->getParentItem()->getId());
+                    $removed = true;
+                }
+                else
+                {
+                    $quote->removeItem($item->getId());
+                    $removed = true;
+                }
+            }
+        }
+
+        return $removed;
     }
 }

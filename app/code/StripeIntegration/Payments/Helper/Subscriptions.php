@@ -1,11 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StripeIntegration\Payments\Helper;
 
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 use StripeIntegration\Payments\Exception\CacheInvalidationException;
 use Magento\Framework\Exception\LocalizedException;
 use StripeIntegration\Payments\Exception\GenericException;
+use StripeIntegration\Payments\Exception\InvalidSubscriptionProduct;
 
 class Subscriptions
 {
@@ -26,7 +29,6 @@ class Subscriptions
     private $stripePriceFactory;
     private $stripeCouponFactory;
     private $subscriptionCollectionFactory;
-    private $couponCollection;
     private $priceCurrency;
     private $customer;
     private $subscriptionFactory;
@@ -45,6 +47,9 @@ class Subscriptions
     private $checkoutFlow;
     private $convert;
     private $paymentMethodTypesHelper;
+    private $initialFeeHelper;
+    private $subscriptionCartFactory;
+    private $productHelper;
 
     public function __construct(
         \StripeIntegration\Payments\Helper\Generic $paymentsHelper,
@@ -55,6 +60,8 @@ class Subscriptions
         \StripeIntegration\Payments\Helper\Order $orderHelper,
         \StripeIntegration\Payments\Helper\Convert $convert,
         \StripeIntegration\Payments\Helper\PaymentMethodTypes $paymentMethodTypesHelper,
+        \StripeIntegration\Payments\Helper\InitialFee $initialFeeHelper,
+        \StripeIntegration\Payments\Helper\Product $productHelper,
         \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \StripeIntegration\Payments\Model\PaymentIntentFactory $paymentIntentModelFactory,
@@ -63,7 +70,6 @@ class Subscriptions
         \StripeIntegration\Payments\Model\Stripe\PriceFactory $stripePriceFactory,
         \StripeIntegration\Payments\Model\Stripe\CouponFactory $stripeCouponFactory,
         \StripeIntegration\Payments\Model\ResourceModel\Subscription\CollectionFactory $subscriptionCollectionFactory,
-        \StripeIntegration\Payments\Model\ResourceModel\Coupon\Collection $couponCollection,
         \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
         \Magento\Framework\Pricing\PriceCurrencyInterface $priceCurrency,
         \StripeIntegration\Payments\Model\SubscriptionFactory $subscriptionFactory,
@@ -72,6 +78,7 @@ class Subscriptions
         \StripeIntegration\Payments\Model\SubscriptionOptionsFactory $subscriptionOptionsFactory,
         \StripeIntegration\Payments\Model\Subscription\StartDateFactory $startDateFactory,
         \StripeIntegration\Payments\Model\Subscription\ScheduleFactory $subscriptionScheduleFactory,
+        \StripeIntegration\Payments\Model\Subscription\CartFactory $subscriptionCartFactory,
         \StripeIntegration\Payments\Helper\CheckoutSession $checkoutSessionHelper
     ) {
         $this->paymentsHelper = $paymentsHelper;
@@ -90,7 +97,6 @@ class Subscriptions
         $this->stripePriceFactory = $stripePriceFactory;
         $this->stripeCouponFactory = $stripeCouponFactory;
         $this->subscriptionCollectionFactory = $subscriptionCollectionFactory;
-        $this->couponCollection = $couponCollection;
         $this->checkoutFlow = $checkoutFlow;
         $this->priceCurrency = $priceCurrency;
         $this->customer = $paymentsHelper->getCustomerModel();
@@ -101,6 +107,9 @@ class Subscriptions
         $this->startDateFactory = $startDateFactory;
         $this->subscriptionScheduleFactory = $subscriptionScheduleFactory;
         $this->checkoutSessionHelper = $checkoutSessionHelper;
+        $this->initialFeeHelper = $initialFeeHelper;
+        $this->productHelper = $productHelper;
+        $this->subscriptionCartFactory = $subscriptionCartFactory;
     }
 
     public function getSubscriptionExpandParams()
@@ -115,7 +124,7 @@ class Subscriptions
 
         $subscription = $this->getSubscriptionFromOrder($order);
         $profile = $subscription['profile'];
-        $subscriptionItems = $this->getSubscriptionItemsFromOrder($order, $subscription);
+        $subscriptionItems = $this->getSubscriptionItemsFromSubscriptionDetails($subscription);
 
         if (empty($subscriptionItems))
             return null;
@@ -324,11 +333,9 @@ class Subscriptions
 
         $subscription = $this->getSubscriptionFromOrder($order);
 
-        $subscriptionsTotal = 0;
-        $subscriptionsTotal += $subscription['profile']['amount_magento'];
-
-        $recurringPrice = $this->createSubscriptionPriceForSubscription($subscription);
-        $metadata = $this->collectMetadataForSubscription(null, $subscription, $order);
+        $stripeProductModel = $this->stripeProductFactory->create()->fromOrderItem($subscription['order_item']);
+        $recurringPrice = $this->createSubscriptionPriceForSubscription($subscription['profile'], $stripeProductModel);
+        $metadata = $this->collectMetadataForSubscription($subscription['profile']);
 
         $subscriptionItems[] = [
             "metadata" => $metadata,
@@ -516,7 +523,7 @@ class Subscriptions
     }
 
     // Used by the CLI migration tool
-    public function updateSubscriptionPriceFromOrder($subscription, $order, $quote, $prorate = false)
+    public function updateSubscriptionPriceFromOrder($subscription, $order, bool $prorate = false)
     {
         $upcomingInvoice = $this->config->getStripeClient()->invoices->upcoming(['subscription' => $subscription->id ]);
         if (!empty($upcomingInvoice->discount))
@@ -525,7 +532,7 @@ class Subscriptions
         }
 
         $paymentIntentModel = $this->paymentIntentModelFactory->create();
-        $paymentIntentParams = $paymentIntentModel->getParamsFrom($quote, $order);
+        $paymentIntentParams = $paymentIntentModel->getParamsFrom($order);
         $params = $this->getSubscriptionParamsFromOrder($order, $paymentIntentParams);
 
         if (empty($params['items']) || empty($params['metadata']))
@@ -564,34 +571,28 @@ class Subscriptions
         return in_array($subscription->status, ["active", "trialing"]);
     }
 
-    public function getSubscriptionItemsFromOrder($order, $subscription)
+    public function getSubscriptionItemsFromSubscriptionDetails($subscription)
     {
         if (empty($subscription))
             return null;
 
-        $recurringPrice = $this->createSubscriptionPriceForSubscription($subscription);
+        if (!empty($subscription['quote_item']))
+        {
+            $stripeProductModel = $this->stripeProductFactory->create()->fromQuoteItem($subscription['quote_item']);
+        }
+        else if (!empty($subscription['order_item']))
+        {
+            $stripeProductModel = $this->stripeProductFactory->create()->fromOrderItem($subscription['order_item']);
+        }
+        else
+        {
+            throw new LocalizedException(__("Could not create subscription product in Stripe."));
+        }
+
+        $recurringPrice = $this->createSubscriptionPriceForSubscription($subscription['profile'], $stripeProductModel);
 
         $items = [];
-        $metadata = $this->collectMetadataForSubscription(null, $subscription, $order);
-
-        $items[] = [
-            "metadata" => $metadata,
-            "price" => $recurringPrice->id,
-            "quantity" => 1
-        ];
-
-        return $items;
-    }
-
-    public function getSubscriptionItemsFromQuote($quote, $subscription, $order = null)
-    {
-        if (empty($subscription))
-            return null;
-
-        $recurringPrice = $this->createSubscriptionPriceForSubscription($subscription);
-
-        $items = [];
-        $metadata = $this->collectMetadataForSubscription($quote, $subscription, $order);
+        $metadata = $this->collectMetadataForSubscription($subscription['profile']);
 
         $items[] = [
             "metadata" => $metadata,
@@ -612,7 +613,7 @@ class Subscriptions
      *   ...
      * ]
      */
-    public function getSubscriptionsFromQuote($quote)
+    private function getSubscriptionsFromQuote($quote)
     {
         if (!$this->config->isSubscriptionsEnabled())
             return [];
@@ -622,16 +623,18 @@ class Subscriptions
 
         foreach ($items as $item)
         {
-            $product = $this->getSubscriptionProductFromQuoteItem($item);
-            if (!$product)
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($item);
+            if (!$subscriptionProductModel->isSubscriptionProduct())
                 continue;
+
+            $product = $subscriptionProductModel->getProduct();
 
             try
             {
                 $subscriptions[] = [
                     'product' => $product,
                     'quote_item' => $item,
-                    'profile' => $this->getSubscriptionDetails($product, $quote, $item)
+                    'profile' => $this->getSubscriptionDetails($subscriptionProductModel, $quote, $item)
                 ];
             }
             catch (\StripeIntegration\Payments\Exception\InvalidSubscriptionProduct $e)
@@ -680,16 +683,18 @@ class Subscriptions
 
         foreach ($items as $item)
         {
-            $product = $this->getSubscriptionProductFromOrderItem($item);
-            if (!$product)
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($item);
+            if (!$subscriptionProductModel->isSubscriptionProduct())
                 continue;
+
+            $product = $subscriptionProductModel->getProduct();
 
             try
             {
                 $subscriptions[] = [
                     'product' => $product,
                     'order_item' => $item,
-                    'profile' => $this->getSubscriptionDetails($product, $order, $item)
+                    'profile' => $this->getSubscriptionDetails($subscriptionProductModel, $order, $item)
                 ];
             }
             catch (\StripeIntegration\Payments\Exception\InvalidSubscriptionProduct $e)
@@ -699,6 +704,27 @@ class Subscriptions
         }
 
         return $subscriptions;
+    }
+
+    public function getSubscriptionProductFromOrder($order)
+    {
+        if (!$this->config->isSubscriptionsEnabled())
+            return [];
+
+        $items = $order->getAllItems();
+
+        foreach ($items as $item) {
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($item);
+            if (!$subscriptionProductModel->isSubscriptionProduct())
+                continue;
+
+            return [
+                'product' => $subscriptionProductModel->getProduct(),
+                'order_item' => $item
+            ];
+        }
+
+        return null;
     }
 
     public function getSubscriptionFromOrder($order)
@@ -892,215 +918,117 @@ class Subscriptions
         return $details;
     }
 
-    public function getSubscriptionDetails($product, $order, $item)
+    public function getSubscriptionDetails(\StripeIntegration\Payments\Model\SubscriptionProduct $subscriptionProductModel, $order, $item)
     {
-        // Get billing interval and billing period
-        $subscriptionOptions = $this->getSubscriptionOptionDetails($product->getId());
-        if (!$subscriptionOptions)
+        if (!$subscriptionProductModel->isSubscriptionProduct())
         {
-            throw new GenericException("Subscription details could not be found for product " . $product->getId());
+            throw new InvalidSubscriptionProduct("This is not a subscription product.");
         }
-
-        $interval = $subscriptionOptions->getSubInterval();
-        $intervalCount = $subscriptionOptions->getSubIntervalCount();
-
-        if (!$interval)
-            throw new GenericException("An interval period has not been specified for the subscription");
-
-        if (!$intervalCount)
-            $intervalCount = 1;
-
-        $name = $item->getName();
 
         $originalItem = $item;
-        $originalQty = max(/* quote */ $item->getQty(), /* order */ $item->getQtyOrdered());
 
         $item = $this->getVisibleSubscriptionItem($item);
-        $qty = max(/* quote */ $item->getQty(), /* order */ $item->getQtyOrdered());
 
-        // Get the subscription amount
-        if ($this->config->priceIncludesTax() && $item->getPriceInclTax())
-            $baseAmount = $item->getPriceInclTax();
-        else
-            $baseAmount = $item->getPrice();
-
-        if (!is_numeric($baseAmount) || $baseAmount <= 0)
-        {
-            throw new \StripeIntegration\Payments\Exception\InvalidSubscriptionProduct("Invalid subscription price");
-        }
-
-        $discount = $item->getDiscountAmount();
-
-        // Get the subscription currency
-        if ($this->isOrder($order))
-        {
-            $currency = $order->getOrderCurrencyCode();
-            $rate = $order->getBaseToOrderRate();
-        }
-        else
-        {
-            $currency = $order->getQuoteCurrencyCode();
-            $rate = $order->getBaseToQuoteRate();
-        }
-
-        $baseDiscount = $item->getBaseDiscountAmount();
-        $baseTax = $item->getBaseTaxAmount();
         $baseCurrency = $order->getBaseCurrencyCode();
-        $baseShippingTaxAmount = 0;
-        $baseShipping = 0;
-
-        // This seems to be a Magento multi-currency bug, tested in v2.3.2
-        if (is_numeric($rate) && $rate > 0 && $rate != 1 && $baseAmount == $item->getBasePrice())
-        {
-            $amount = round(floatval($baseAmount * $rate), 2); // We fix it by doing the calculation ourselves
-        }
-        else
-        {
-            $amount = $baseAmount;
-        }
+        $deductedOrderAmount = 0;
+        $baseDeductedOrderAmount = 0;
 
         if ($this->isOrder($order))
         {
-            $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
-            $quoteItem = null;
-            if (!$quote || !$quote->getId())
-            {
-                $quote = $this->createQuoteFromOrder($order);
-                $quote->setIsActive(0);
-                $this->quoteHelper->saveQuote($quote);
-            }
-
-            foreach ($quote->getAllItems() as $qItem)
-            {
-                if ($qItem->getSku() == $item->getSku())
-                {
-                    $quoteItem = $qItem;
-
-                    if ($quoteItem->getParentItemId() && $originalItem->getParentItem() && $originalItem->getParentItem()->getProductType() == "configurable")
-                    {
-                        $qty = $item->getQtyOrdered() * $quoteItem->getQty();
-                        $quoteItem->setQtyCalculated($qty);
-                    }
-                }
-            }
-
-            if ($item->getShippingAmount())
-            {
-                $shipping = $item->getShippingAmount();
-            }
-            else if ($item->getBaseShippingAmount())
-            {
-                $shipping = $this->paymentsHelper->convertBaseAmountToStoreAmount($item->getBaseShippingAmount());
-            }
-            else
-            {
-                $baseShipping = $this->taxHelper->getBaseShippingAmountForQuoteItem($quoteItem, $quote);
-                $shipping = $this->paymentsHelper->convertBaseAmountToStoreAmount($baseShipping);
-            }
-
-            $orderShippingAmount = $order->getShippingAmount();
-            $orderShippingTaxAmount = $order->getShippingTaxAmount();
-            $shippingTaxPercent = $this->taxHelper->getTaxPercentForOrder($order->getId(), "shipping");
-
-            if ($orderShippingAmount == $shipping)
-            {
-                $shippingTaxAmount = $orderShippingTaxAmount;
-            }
-            else
-            {
-                $shippingTaxAmount = 0;
-
-                if ($shippingTaxPercent && is_numeric($shippingTaxPercent) && $shippingTaxPercent > 0)
-                {
-                    if ($this->config->shippingIncludesTax())
-                        $shippingTaxAmount = $this->taxHelper->taxInclusiveTaxCalculator($shipping, $shippingTaxPercent);
-                    else
-                        $shippingTaxAmount = $this->taxHelper->taxExclusiveTaxCalculator($shipping, $shippingTaxPercent);
-                }
-            }
+            $orderIncrementId = $order->getIncrementId();
+            $currency = $order->getOrderCurrencyCode();
+            $qty = $item->getQtyOrdered();
+            $subscriptionCart = $this->subscriptionCartFactory->create()->fromOrderItem($originalItem, $order);
         }
         else
         {
             $quote = $order;
-            $quoteItem = $item;
-
-            // Case for configurable and bundled subscriptions, gets the name of the parent product
-            if ($quoteItem->getProductType() != $originalItem->getProductType())
-            {
-                $name = $quoteItem->getName();
-            }
-
-            $baseShipping = $this->taxHelper->getBaseShippingAmountForQuoteItem($quoteItem, $quote);
-            $shippingTaxRate = $this->taxHelper->getShippingTaxRateFromQuote($quote);
-            $shipping = $this->paymentsHelper->convertBaseAmountToStoreAmount($baseShipping);
-
-            $shippingTaxAmount = 0;
-            $shippingTaxPercent = 0;
-
-            if ($shipping > 0 && $shippingTaxRate)
-            {
-                $shippingTaxPercent = $shippingTaxRate["percent"];
-                $shippingTaxAmount = $shippingTaxRate["amount"];
-                $baseShippingTaxAmount = $shippingTaxRate["base_amount"];
-            }
+            $orderIncrementId = $quote->getReservedOrderId();
+            $currency = $quote->getQuoteCurrencyCode();
+            $qty = $item->getQty();
+            $subscriptionCart = $this->subscriptionCartFactory->create()->fromQuoteItem($originalItem, $quote);
         }
 
-        $initialFeeDetails = $this->getInitialFeeDetails($product, $order, $originalItem);
-        $item->setInitialFee($initialFeeDetails['initial_fee']);
-        $item->setBaseInitialFee($initialFeeDetails['base_initial_fee']);
-        $item->setInitialFeeTax($initialFeeDetails['tax']);
-        $item->setBaseInitialFeeTax($initialFeeDetails['base_tax']);
+        $currencyPrecision = $this->convert->getCurrencyPrecision($currency);
+        $baseCurrencyPrecision = $this->convert->getCurrencyPrecision($baseCurrency);
+        $amount = $subscriptionCart->getSubscriptionPrice();
+        $baseAmount = $subscriptionCart->getBaseSubscriptionPrice();
+        $baseTax = $subscriptionCart->getBaseTaxAmount();
+        $tax = $subscriptionCart->getTaxAmount();
+        $shipping = $subscriptionCart->getShippingAmount();
+        $baseShipping = $subscriptionCart->getBaseShippingAmount();
+        $shippingTaxAmount = $subscriptionCart->getShippingTaxAmount();
+        $shippingTaxPercent = $subscriptionCart->getShippingTaxPercent();
+        $baseShippingTaxAmount = $subscriptionCart->getBaseShippingTaxAmount();
+        $discount = $subscriptionCart->getDiscountAmount();
+        $baseDiscount = $subscriptionCart->getBaseDiscountAmount();
 
-        $tax = round(floatval($item->getTaxAmount()), 4);
-        $expiringCouponModel = $this->getExpiringCoupon($order);
+        if ($subscriptionProductModel->hasZeroInitialOrderPrice() && $this->checkoutFlow->shouldNotBillTrialSubscriptionItems())
+        {
+            $deductedOrderAmount = $subscriptionCart->getGrandTotal() - $originalItem->getInitialFee();
+            $baseDeductedOrderAmount = $subscriptionCart->getBaseGrandTotal() - $originalItem->getBaseInitialFee();
+
+            if (!$this->config->priceIncludesTax())
+            {
+                $deductedOrderAmount -= $originalItem->getInitialFeeTax();
+                $baseDeductedOrderAmount -= $originalItem->getBaseInitialFeeTax();
+            }
+
+            $subscriptionCart->setOriginalSubscriptionPrice($order);
+        }
+
+        $expiringCouponModel = $this->orderHelper->getExpiringCoupon($order);
 
         $params = [
-            'name' => $name,
+            'name' => $item->getName(),
             'qty' => $qty,
-            'interval' => $interval,
-            'interval_count' => $intervalCount,
+            'interval' => $subscriptionProductModel->getInterval(),
+            'interval_count' => $subscriptionProductModel->getIntervalCount(),
             'amount_magento' => $amount,
             'base_amount_magento' => $baseAmount,
             'amount_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($amount, $currency),
-            'initial_fee_magento' => $initialFeeDetails['initial_fee'],
-            'base_initial_fee_magento' => $initialFeeDetails['base_initial_fee'],
-            'tax_amount_initial_fee' => $initialFeeDetails['tax'],
-            'base_tax_amount_initial_fee' => $initialFeeDetails['base_tax'],
-            'initial_fee_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($initialFeeDetails['initial_fee'], $currency),
-            'tax_amount_initial_fee_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($initialFeeDetails['tax'], $currency),
+            'initial_fee_magento' => $originalItem->getInitialFee(),
+            'base_initial_fee_magento' => $originalItem->getBaseInitialFee(),
+            'tax_amount_initial_fee' => $originalItem->getInitialFeeTax(),
+            'base_tax_amount_initial_fee' => $originalItem->getBaseInitialFeeTax(),
+            'initial_fee_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($originalItem->getInitialFee(), $currency),
+            'tax_amount_initial_fee_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($originalItem->getInitialFeeTax(), $currency),
             'discount_amount_magento' => $discount,
             'base_discount_amount_magento' => $baseDiscount,
             'discount_amount_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($discount, $currency),
-            'shipping_magento' => round(floatval($shipping), 4),
-            'base_shipping_magento' => round(floatval($baseShipping), 2),
+            'shipping_magento' => round(floatval($shipping), $currencyPrecision),
+            'base_shipping_magento' => round(floatval($baseShipping), $baseCurrencyPrecision),
             'shipping_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($shipping, $currency),
             'currency' => strtolower($currency),
             'base_currency' => strtolower($baseCurrency),
             'tax_percent' => $item->getTaxPercent(),
             'tax_percent_shipping' => $shippingTaxPercent,
             'tax_amount_item' => $tax, // already takes $qty into account
-            'base_tax_amount_item' => round(floatval($baseTax), 2), // already takes $qty into account
+            'base_tax_amount_item' => round(floatval($baseTax), $baseCurrencyPrecision), // already takes $qty into account
             'tax_amount_item_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($tax, $currency), // already takes $qty into account
-            'tax_amount_shipping' => round(floatval($shippingTaxAmount), 4),
-            'base_tax_amount_shipping' => round(floatval($baseShippingTaxAmount), 2),
+            'tax_amount_shipping' => round(floatval($shippingTaxAmount), $currencyPrecision),
+            'base_tax_amount_shipping' => round(floatval($baseShippingTaxAmount), $baseCurrencyPrecision),
             'tax_amount_shipping_stripe' => $this->paymentsHelper->convertMagentoAmountToStripeAmount($shippingTaxAmount, $currency),
             'trial_end' => null,
-            'trial_days' => $this->getTrialDays($product),
+            'trial_days' => $subscriptionProductModel->getTrialDays() ?? 0,
             'expiring_coupon' => ($expiringCouponModel ? $expiringCouponModel->getData() : null),
             'expiring_tax_amount_item' => 0,
             'expiring_base_tax_amount_item' => 0,
             'expiring_discount_amount_magento' => 0,
             'expiring_base_discount_amount_magento' => 0,
-            'product_id' => $product->getId()
+            'product_id' => $subscriptionProductModel->getProductId(),
+            'deducted_order_amount' => $deductedOrderAmount,
+            'base_deducted_order_amount' => $baseDeductedOrderAmount,
+            'order_increment_id' => $orderIncrementId,
         ];
 
-        $params = array_merge($params, $subscriptionOptions->getData());
+        $params = array_merge($params, $subscriptionProductModel->getSubscriptionDetails()->getData());
 
         if (!empty($params['expiring_coupon']))
         {
             // When the coupon expires, we want to increase the tax to the non-discounted amount, so we overwrite it here
-            $taxAmountItem = round($params['amount_magento'] * $params['qty'] * ($params['tax_percent'] / 100), 2);
-            $baseTaxAmountItem = round($params['base_amount_magento'] * $params['qty'] * ($params['tax_percent'] / 100), 2);
+            $taxAmountItem = round($params['amount_magento'] * $params['qty'] * ($params['tax_percent'] / 100), $currencyPrecision);
+            $baseTaxAmountItem = round($params['base_amount_magento'] * $params['qty'] * ($params['tax_percent'] / 100), $baseCurrencyPrecision);
             $taxAmountItemStripe = $this->paymentsHelper->convertMagentoAmountToStripeAmount($taxAmountItem, $params['currency']);
 
             $diffTaxAmountItem = $taxAmountItem - $params['tax_amount_item'];
@@ -1137,36 +1065,6 @@ class Subscriptions
         return 0;
     }
 
-    public function getExpiringCoupon($order)
-    {
-        $appliedRuleIds = $order->getAppliedRuleIds();
-        if (empty($appliedRuleIds))
-            return null;
-
-        $appliedRuleIds = explode(",", $appliedRuleIds);
-
-        $foundCoupons = [];
-        foreach ($appliedRuleIds as $ruleId)
-        {
-            $coupon = $this->couponCollection->getByRuleId($ruleId);
-            if ($coupon)
-                $foundCoupons[] = $coupon;
-        }
-
-        if (empty($foundCoupons))
-            return null;
-
-        if (count($foundCoupons) > 1)
-        {
-            $this->paymentsHelper->logError("Could not apply discount coupon: Multiple cart price rules were applied on the cart. Only one can be applied on subscription carts.");
-            return null;
-        }
-
-        $couponCode = $order->getCouponCode() ?? "rule_id_" . $foundCoupons[0]->getRuleId();
-        $foundCoupons[0]->setCouponCode($couponCode);
-        return $foundCoupons[0];
-    }
-
     public function getSubscriptionTotalFromProfile($profile)
     {
         $subscriptionTotal =
@@ -1180,7 +1078,9 @@ class Subscriptions
         if (!$this->config->priceIncludesTax())
             $subscriptionTotal += $profile['tax_amount_item']; // Includes qty calculation
 
-        return round(floatval($subscriptionTotal), 2);
+        $total = round(floatval($subscriptionTotal), 2);
+
+        return $total;
     }
 
     // We increase the subscription price by the amount of the discount, so that we can apply
@@ -1281,9 +1181,17 @@ class Subscriptions
 
             if (empty($name) && isset($sub->plan->product) && is_numeric($sub->plan->product))
             {
-                $product = $this->paymentsHelper->loadProductById($sub->plan->product);
-                if ($product && $product->getName())
-                    $name = $product->getName();
+                try
+                {
+                    $product = $this->productHelper->getProduct($sub->plan->product);
+                    if ($product->getName())
+                        $name = $product->getName();
+                }
+                catch (\Exception $e)
+                {
+
+                }
+
             }
             else
                 return "Unknown subscription (err: 4)";
@@ -1329,35 +1237,16 @@ class Subscriptions
         return $productName;
     }
 
-    public function createSubscriptionPriceForSubscription($subscription)
+    public function createSubscriptionPriceForSubscription($profile, $stripeProductModel)
     {
-        if (empty($subscription))
-            throw new GenericException("No subscription specified");
-
         if ($this->paymentsHelper->isMultiShipping())
             throw new GenericException("Price ID for multi-shipping subscriptions is not implemented", 1);
 
-        $profile = $subscription['profile'];
-
-        $productNames = [];
         $interval = $profile['interval'];
         $intervalCount = $profile['interval_count'];
         $currency = $profile['currency'];
         $magentoAmount = $this->getSubscriptionTotalWithDiscountAdjustmentFromProfile($profile);
         $stripeAmount = $this->paymentsHelper->convertMagentoAmountToStripeAmount($magentoAmount, $currency);
-
-        if (!empty($subscription['quote_item']))
-        {
-            $stripeProductModel = $this->stripeProductFactory->create()->fromQuoteItem($subscription['quote_item']);
-        }
-        else if (!empty($subscription['order_item']))
-        {
-            $stripeProductModel = $this->stripeProductFactory->create()->fromOrderItem($subscription['order_item']);
-        }
-        else
-        {
-            throw new LocalizedException(__("Could not create subscription product in Stripe."));
-        }
 
         $stripePriceModel = $this->stripePriceFactory->create()->fromData($stripeProductModel->getId(), $stripeAmount, $currency, $interval, $intervalCount);
 
@@ -1372,29 +1261,24 @@ class Subscriptions
         return $stripePriceModel->getStripeObject();
     }
 
-    public function collectMetadataForSubscription($quote, $subscription, $order = null)
+    public function collectMetadataForSubscription($profile)
     {
         $subscriptionProductIds = [];
 
-        if ($subscription)
-        {
-            $product = $subscription['product'];
-            $profile = $subscription['profile'];
-            $subscriptionProductIds[] = $profile['product_id'];
-        }
-
-        if (empty($subscriptionProductIds))
+        if (empty($profile['product_id']))
             throw new GenericException("Could not find any subscription product IDs in cart subscriptions.");
+
+        $subscriptionProductIds[] = $profile['product_id'];
 
         $metadata = [
             "Type" => "SubscriptionsTotal",
             "SubscriptionProductIDs" => implode(",", $subscriptionProductIds)
         ];
 
-        if ($order && $order->getIncrementId())
-            $metadata["Order #"] = $order->getIncrementId();
-        else if (!empty($quote) && $quote->getReservedOrderId())
-            $metadata["Order #"] = $quote->getReservedOrderId();
+        if (!empty($profile['order_increment_id']))
+        {
+            $metadata["Order #"] = $profile['order_increment_id'];
+        }
 
         return $metadata;
     }
@@ -1430,64 +1314,60 @@ class Subscriptions
         $items = $quote->getAllItems();
         foreach ($items as $item)
         {
-            $product = $this->getSubscriptionProductFromOrderItem($item);
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($item);
 
-            if (!$this->isSubscriptionProduct($product))
+            if (!$subscriptionProductModel->isSubscriptionProduct())
                 continue;
 
-            $subscriptionOptionDetails = $this->getSubscriptionOptionDetails($product->getId());
-            if (!$subscriptionOptionDetails)
+            if (!$subscriptionProductModel->hasTrialPeriod())
                 continue;
 
-            $trial = $subscriptionOptionDetails->getSubTrial();
-            if (is_numeric($trial) && $trial > 0)
+            try
             {
-                try
-                {
-                    $profile = $this->getSubscriptionDetails($product, $quote, $item);
-                }
-                catch (\StripeIntegration\Payments\Exception\InvalidSubscriptionProduct $e)
-                {
-                    continue;
-                }
-
-                $discountTotal = $profile["discount_amount_magento"] - $profile['expiring_discount_amount_magento'];
-                $baseDiscountTotal = $profile["base_discount_amount_magento"] - $profile['expiring_base_discount_amount_magento'];
-
-                $taxAmountItem = $profile["tax_amount_item"] - $profile['expiring_tax_amount_item'];
-                $baseTaxAmountItem = $profile["base_tax_amount_item"] - $profile['expiring_base_tax_amount_item'];
-
-                $taxAmountShipping = $profile["tax_amount_shipping"];
-                $baseTaxAmountShipping = $profile["base_tax_amount_shipping"];
-
-                $this->trialingSubscriptionsAmounts["subscriptions_total"] += $profile["amount_magento"] * $profile["qty"];
-                $this->trialingSubscriptionsAmounts["base_subscriptions_total"] += $profile["base_amount_magento"] * $profile["qty"];
-                $this->trialingSubscriptionsAmounts["shipping_total"] += $profile["shipping_magento"];
-                $this->trialingSubscriptionsAmounts["base_shipping_total"] += $profile["base_shipping_magento"];
-                $this->trialingSubscriptionsAmounts["discount_total"] += $discountTotal;
-                $this->trialingSubscriptionsAmounts["base_discount_total"] += $baseDiscountTotal;
-                $this->trialingSubscriptionsAmounts["tax_total"] += $taxAmountItem + $taxAmountShipping;
-                $this->trialingSubscriptionsAmounts["base_tax_total"] += $baseTaxAmountItem + $baseTaxAmountShipping;
-                $this->trialingSubscriptionsAmounts["base_initial_fee"] += $profile["base_initial_fee_magento"];
-                $this->trialingSubscriptionsAmounts["initial_fee"] += $profile["initial_fee_magento"];
-                $this->trialingSubscriptionsAmounts["tax_amount_initial_fee"] += $profile["tax_amount_initial_fee"];
-                $this->trialingSubscriptionsAmounts["base_tax_amount_initial_fee"] += $profile["base_tax_amount_initial_fee"];
-
-                $inclusiveTax = $baseInclusiveTax = 0;
-                if ($this->config->shippingIncludesTax())
-                {
-                    $inclusiveTax += $taxAmountShipping;
-                    $baseInclusiveTax = $baseTaxAmountShipping;
-                }
-
-                if ($this->config->priceIncludesTax())
-                {
-                    $inclusiveTax += $taxAmountItem;
-                    $baseInclusiveTax = $baseTaxAmountItem;
-                }
-                $this->trialingSubscriptionsAmounts["tax_inclusive"] = $inclusiveTax;
-                $this->trialingSubscriptionsAmounts["base_tax_inclusive"] = $baseInclusiveTax;
+                $profile = $this->getSubscriptionDetails($subscriptionProductModel, $quote, $item);
             }
+            catch (\StripeIntegration\Payments\Exception\InvalidSubscriptionProduct $e)
+            {
+                continue;
+            }
+
+            $discountTotal = $profile["discount_amount_magento"] - $profile['expiring_discount_amount_magento'];
+            $baseDiscountTotal = $profile["base_discount_amount_magento"] - $profile['expiring_base_discount_amount_magento'];
+
+            $taxAmountItem = $profile["tax_amount_item"] - $profile['expiring_tax_amount_item'];
+            $baseTaxAmountItem = $profile["base_tax_amount_item"] - $profile['expiring_base_tax_amount_item'];
+
+            $taxAmountShipping = $profile["tax_amount_shipping"];
+            $baseTaxAmountShipping = $profile["base_tax_amount_shipping"];
+
+            $this->trialingSubscriptionsAmounts["subscriptions_total"] += $profile["amount_magento"] * $profile["qty"];
+            $this->trialingSubscriptionsAmounts["base_subscriptions_total"] += $profile["base_amount_magento"] * $profile["qty"];
+            $this->trialingSubscriptionsAmounts["shipping_total"] += $profile["shipping_magento"];
+            $this->trialingSubscriptionsAmounts["base_shipping_total"] += $profile["base_shipping_magento"];
+            $this->trialingSubscriptionsAmounts["discount_total"] += $discountTotal;
+            $this->trialingSubscriptionsAmounts["base_discount_total"] += $baseDiscountTotal;
+            $this->trialingSubscriptionsAmounts["tax_total"] += $taxAmountItem + $taxAmountShipping + $profile["tax_amount_initial_fee"];
+            $this->trialingSubscriptionsAmounts["base_tax_total"] += $baseTaxAmountItem + $baseTaxAmountShipping + $profile["base_tax_amount_initial_fee"];
+            $this->trialingSubscriptionsAmounts["base_initial_fee"] += $profile["base_initial_fee_magento"];
+            $this->trialingSubscriptionsAmounts["initial_fee"] += $profile["initial_fee_magento"];
+            $this->trialingSubscriptionsAmounts["tax_amount_initial_fee"] += $profile["tax_amount_initial_fee"];
+            $this->trialingSubscriptionsAmounts["base_tax_amount_initial_fee"] += $profile["base_tax_amount_initial_fee"];
+
+            $inclusiveTax = $baseInclusiveTax = 0;
+            if ($this->config->shippingIncludesTax())
+            {
+                $inclusiveTax += $taxAmountShipping;
+                $baseInclusiveTax += $baseTaxAmountShipping;
+            }
+
+            if ($this->config->priceIncludesTax())
+            {
+                // Adding the initial fee tax here because initial fee should be considered part of the price
+                $inclusiveTax += $taxAmountItem + $profile["tax_amount_initial_fee"];
+                $baseInclusiveTax += $baseTaxAmountItem + $profile["base_tax_amount_initial_fee"];
+            }
+            $this->trialingSubscriptionsAmounts["tax_inclusive"] = $inclusiveTax;
+            $this->trialingSubscriptionsAmounts["base_tax_inclusive"] = $baseInclusiveTax;
         }
 
         foreach ($this->trialingSubscriptionsAmounts as $key => $amount)
@@ -1508,27 +1388,6 @@ class Subscriptions
             return __("%1 every %2", $amount, $intervalUnit);
     }
 
-    public function hasMultipleSubscriptionProducts(array $products)
-    {
-        if (!$this->config->isSubscriptionsEnabled())
-            return false;
-
-        $found = false;
-
-        foreach ($products as $product)
-        {
-            if (!$this->isSubscriptionProduct($product))
-                continue;
-
-            if ($found)
-                return true;
-
-            $found = true;
-        }
-
-        return false;
-    }
-
     public function createQuoteFromOrder($originalOrder)
     {
         $recurringOrder = $this->recurringOrderFactory->create();
@@ -1542,9 +1401,9 @@ class Subscriptions
 
         foreach ($originalOrder->getAllItems() as $orderItem)
         {
-            $product = $this->paymentsHelper->loadProductById($orderItem->getProductId());
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($orderItem);
 
-            if ($this->isSubscriptionProduct($product))
+            if ($subscriptionProductModel->isSubscriptionProduct())
             {
                 $invoiceDetails['products'][$orderItem->getProductId()] = [
                     'amount' => $orderItem->getPrice(),
@@ -1593,34 +1452,6 @@ class Subscriptions
         }
 
         return null;
-    }
-
-    public function isSubscriptionProduct(
-        ?\Magento\Catalog\Api\Data\ProductInterface $product
-    )
-    {
-        if (!$product || !$product->getId())
-            return false;
-
-        $subscriptionOptionDetails = $this->getSubscriptionOptionDetails($product->getId());
-        if (!$subscriptionOptionDetails)
-            return false;
-
-        if (!$subscriptionOptionDetails->getSubEnabled()) {
-            return false;
-        }
-
-        $productType = $product->getTypeId();
-        if (!in_array($productType, ['simple', 'virtual']))
-            return false;
-
-        $interval = $subscriptionOptionDetails->getSubInterval();
-        $intervalCount = (int)$subscriptionOptionDetails->getSubIntervalCount();
-
-        if (!$interval || $intervalCount < 0)
-            return false;
-
-        return true;
     }
 
     public function getInvoiceAmount(\Stripe\Subscription $subscription)
@@ -1865,11 +1696,6 @@ class Subscriptions
         return null;
     }
 
-    public function isSubscriptionUpdate()
-    {
-        return $this->checkoutSessionHelper->isSubscriptionUpdate();
-    }
-
     public function isSubscriptionReactivate()
     {
         return $this->checkoutSessionHelper->isSubscriptionReactivate();
@@ -1998,19 +1824,6 @@ class Subscriptions
         return $combinedProfile;
     }
 
-    public function hasExpiringDiscountCoupons()
-    {
-        $quote = $this->quoteHelper->getQuote();
-        $subscription = $this->getSubscriptionFromQuote($quote);
-
-        if (!empty($subscription['profile']['expiring_coupon']))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
     public function isZeroAmountOrder($order)
     {
         $orderItems = $order->getAllItems();
@@ -2019,14 +1832,14 @@ class Subscriptions
         {
             try
             {
-                $productModel = $this->subscriptionProductFactory->create()->fromOrderItem($orderItem);
+                $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($orderItem);
 
-                if ($productModel->isSubscriptionProduct() && $productModel->hasTrialPeriod())
+                if ($subscriptionProductModel->isSubscriptionProduct() && $subscriptionProductModel->hasTrialPeriod())
                 {
                     $trialSubscriptions[] = [
-                        'product' => $productModel->getProduct(),
+                        'product' => $subscriptionProductModel->getProduct(),
                         'order_item' => $orderItem,
-                        'profile' => $this->getSubscriptionDetails($productModel->getProduct(), $order, $orderItem),
+                        'profile' => $this->getSubscriptionDetails($subscriptionProductModel, $order, $orderItem),
                     ];
                 }
             }
@@ -2062,14 +1875,14 @@ class Subscriptions
         {
             try
             {
-                $productModel = $this->subscriptionProductFactory->create()->fromQuoteItem($quoteItem);
+                $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($quoteItem);
 
-                if ($productModel->isSubscriptionProduct() && $productModel->hasTrialPeriod())
+                if ($subscriptionProductModel->isSubscriptionProduct() && $subscriptionProductModel->hasTrialPeriod())
                 {
                     $trialSubscriptions[] = [
-                        'product' => $productModel->getProduct(),
+                        'product' => $subscriptionProductModel->getProduct(),
                         'quote_item' => $quoteItem,
-                        'profile' => $this->getSubscriptionDetails($productModel->getProduct(), $quote, $quoteItem),
+                        'profile' => $this->getSubscriptionDetails($subscriptionProductModel, $quote, $quoteItem),
                     ];
                 }
             }
@@ -2113,17 +1926,6 @@ class Subscriptions
         }
 
         return $this->localCache[$cacheKey];
-    }
-
-    public function isSubscriptionOptionEnabled($productId)
-    {
-        $subscriptionOptions = $this->getSubscriptionOptionDetails($productId);
-
-        if (!$subscriptionOptions) {
-            return false;
-        }
-
-        return (bool)$subscriptionOptions->getSubEnabled();
     }
 
     public function getReactivatedSubscriptionItems($status)
@@ -2196,83 +1998,31 @@ class Subscriptions
             if (!in_array($item->getProductType(), ["simple", "virtual", "downloadable", "giftcard"]))
                 continue;
 
-            $product = $this->paymentsHelper->loadProductById($item->getProductId());
-
-            if ($product)
+            try
             {
-                $subscriptionOptionDetails = $this->getSubscriptionOptionDetails($product->getId());
+                $product = $this->productHelper->getProduct($item->getProductId());
+            }
+            catch (\Exception $e)
+            {
+                continue;
+            }
 
-                if (!$subscriptionOptionDetails)
-                    continue;
+            $subscriptionOptionDetails = $this->getSubscriptionOptionDetails($product->getId());
 
-                $trial = $subscriptionOptionDetails->getSubTrial();
-                if (is_numeric($trial) && $trial > 0)
-                {
-                    $foundAtLeastOneTrialSubscriptionProduct = true;
-                }
-                else
-                {
-                    return false;
-                }
+            if (!$subscriptionOptionDetails)
+                continue;
+
+            $trial = $subscriptionOptionDetails->getSubTrial();
+            if (is_numeric($trial) && $trial > 0)
+            {
+                $foundAtLeastOneTrialSubscriptionProduct = true;
+            }
+            else
+            {
+                return false;
             }
         }
 
         return $foundAtLeastOneTrialSubscriptionProduct;
-    }
-
-    public function hasOnlyTrialSubscriptions($quote = null)
-    {
-        if (!$quote)
-            $quote = $this->getQuote();
-
-        if (!$quote || !$quote->getId())
-            return false;
-
-        $cacheKey = 'quote_has_only_trial_subscriptions_' . $quote->getId();
-        if (isset($this->localCache[$cacheKey])) {
-            return $this->localCache[$cacheKey];
-        }
-
-        $items = $quote->getAllItems();
-
-        return $this->localCache[$cacheKey] = $this->hasOnlyTrialSubscriptionsIn($items);
-    }
-
-    /**
-     * Description
-     * @param object $item
-     * @return \Magento\Catalog\Model\Product|null
-     */
-    public function getSubscriptionProductFromOrderItem($item)
-    {
-        if (!in_array($item->getProductType(), ["simple", "virtual"]))
-            return null;
-
-        $product = $this->paymentsHelper->loadProductById($item->getProductId());
-
-        if ($product && $this->isSubscriptionOptionEnabled($product->getId()))
-        {
-            return $product;
-        }
-
-        return null;
-    }
-
-    public function getSubscriptionProductFromQuoteItem($quoteItem)
-    {
-        if (!in_array($quoteItem->getProductType(), ["simple", "virtual"]))
-            return null;
-
-        $productId = $quoteItem->getProductId();
-
-        if (empty($productId))
-            return null;
-
-        $product = $this->paymentsHelper->loadProductById($productId);
-
-        if (!$product || !$this->isSubscriptionOptionEnabled($product->getId()))
-            return null;
-
-        return $product;
     }
 }

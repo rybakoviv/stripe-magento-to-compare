@@ -24,18 +24,28 @@
 
         <!-- Fill the card number -->
         <fillField selector="{{StorefrontCustomerPaymentMethodsFormSection.payByCardNumberField}}" userInput="{{CardNumber}}" stepKey="fillCardNumber"/>
+        <wait time="1" stepKey="waitForChangeEvent1"/>
+
         <!-- Fill the expiration date -->
         <fillField selector="{{StorefrontCustomerPaymentMethodsFormSection.payByCardExpField}}" userInput="{{ExpDate}}" stepKey="fillExpDate"/>
+        <wait time="1" stepKey="waitForChangeEvent2"/>
+
         <!-- Fill the CVC number -->
         <fillField selector="{{StorefrontCustomerPaymentMethodsFormSection.payByCardCvcField}}" userInput="{{CVC}}" stepKey="fillCVC"/>
+        <wait time="1" stepKey="waitForChangeEvent3"/>
+
         <!-- Select the country -->
         <selectOption selector="{{StorefrontCustomerPaymentMethodsFormSection.payByCardCountryField}}" userInput="{{country}}" stepKey="fillCountry"/>
 
         <!-- Wait for the zip code field -->
         <waitForElementVisible selector="{{StorefrontCustomerPaymentMethodsFormSection.payByCardZipField}}" stepKey="waitForZipField" time="5"/>
+        <wait time="1" stepKey="waitForChangeEvent4"/>
 
         <!-- Fill zip code -->
         <fillField selector="{{StorefrontCustomerPaymentMethodsFormSection.payByCardZipField}}" userInput="{{zipCode}}" stepKey="fillZipcode"/>
+        <wait time="1" stepKey="waitForChangeEvent5"/>
+
         <switchToIFrame stepKey="switchOutOfPayByCardIframe"/>
+
     </actionGroup>
 </actionGroups>

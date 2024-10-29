@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StripeIntegration\Payments\Model\Subscription;
 
 use StripeIntegration\Payments\Exception\GenericException;

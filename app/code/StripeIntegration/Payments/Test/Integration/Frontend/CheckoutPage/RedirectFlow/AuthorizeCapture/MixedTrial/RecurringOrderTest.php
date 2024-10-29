@@ -45,8 +45,8 @@ class RecurringOrderTest extends \PHPUnit\Framework\TestCase
 
         // Refresh the order
         $order = $this->tests->refreshOrder($order);
-        $nonSubscriptionsAmount = 13.46;
-        $baseNonSubscriptionsAmount = 15.84;
+        $subscriptionsAmount = $nonSubscriptionsAmount = 13.46;
+        $baseSubscriptionsAmount = $baseNonSubscriptionsAmount = 15.84;
         $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
         $this->assertEquals("processing", $order->getState());
         $this->assertEquals("processing", $order->getStatus());
@@ -98,11 +98,11 @@ class RecurringOrderTest extends \PHPUnit\Framework\TestCase
         $newOrder = $this->tests->getLastOrder();
         // Assert new order, invoices, invoice items, invoice totals
 
-        $this->assertEquals($order->getBaseGrandTotal() - $baseNonSubscriptionsAmount, $newOrder->getBaseGrandTotal());
+        $this->assertEquals($baseSubscriptionsAmount, $newOrder->getBaseGrandTotal());
         if ($this->tests->magento("<", "2.4"))
             $this->assertEquals(13.59, $newOrder->getGrandTotal()); // Magento 2.3.7-p3 does not perform a currency conversion on the tax_amount
         else
-            $this->assertEquals($order->getGrandTotal() - $nonSubscriptionsAmount, $newOrder->getGrandTotal());
+            $this->assertEquals($subscriptionsAmount, $newOrder->getGrandTotal());
 
         $this->assertNotEquals($order->getIncrementId(), $newOrder->getIncrementId());
         $this->assertEquals("processing", $newOrder->getState());

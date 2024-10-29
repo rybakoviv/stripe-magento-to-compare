@@ -22,6 +22,7 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
     private $resourceModel;
     private $quoteHelper;
     private $orderHelper;
+    private $productHelper;
 
     public function __construct(
         \StripeIntegration\Payments\Model\Config $config,
@@ -30,6 +31,7 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
+        \StripeIntegration\Payments\Helper\Product $productHelper,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \StripeIntegration\Payments\Model\Stripe\SubscriptionFactory $stripeSubscriptionFactory,
         \StripeIntegration\Payments\Helper\Data $dataHelper,
@@ -60,6 +62,7 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
         $this->resourceModel = $resourceModel;
         $this->quoteHelper = $quoteHelper;
         $this->orderHelper = $orderHelper;
+        $this->productHelper = $productHelper;
     }
 
     protected function _construct()
@@ -140,8 +143,12 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
         return $this;
     }
 
-    public function cancel($subscriptionId)
+    public function cancel()
     {
+        $subscription = $this->getStripeSubscriptionModel()->getStripeObject();
+
+        $subscriptionId = $subscription->id;
+
         $this->config->getStripeClient()->subscriptions->cancel($subscriptionId, []);
 
         $this->resourceModel->load($this, $subscriptionId, "subscription_id");
@@ -161,101 +168,101 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
         }
     }
 
-    public function reactivate()
+    public function getStripeObject()
     {
-        try {
-            if (!$this->getId())
-                throw new GenericException(__("The subscription could not be loaded."));
-
-            $subscription = $this->getStripeSubscriptionModel()->getStripeObject();
-
-            $params['customer'] = $subscription->customer;
-            $params['items'] = [];
-
-            if (isset($subscription->items) && isset($subscription->items->data)) {
-                foreach ($subscription->items->data as $subItems) {
-
-                    $subItemData = [];
-                    $subItemData['price'] = $subItems->price->id;
-                    $subItemData['quantity'] = $subItems->quantity;
-                    $subItemData['metadata'] = json_decode(json_encode($subItems->metadata), true);
-                    $params['items'][] = $subItemData;
-                }
-            }
-
-            $params['metadata'] = json_decode(json_encode($subscription->metadata), true);
-            $params['description'] = $subscription->description?: "Subscription";
-            $params['currency'] = $subscription->currency;
-            $params['collection_method'] = $subscription->collection_method;
-
-            if (is_numeric($subscription->trial_end) && $subscription->trial_end > time())
-            {
-                $params['trial_end'] = $subscription->trial_end;
-            }
-
-            $nextStartDate = $this->getNextStartDate($subscription->current_period_end);
-
-            if ($nextStartDate && empty($params['trial_end'])) {
-                $params['billing_cycle_anchor'] = $nextStartDate;
-                $params['proration_behavior'] = 'none';
-            }
-
-            if (isset($subscription->payment_settings) && isset($subscription->payment_settings->save_default_payment_method)) {
-                $params['payment_settings']['save_default_payment_method'] = $subscription->payment_settings->save_default_payment_method;
-            }
-
-            $reactivationModel = $this->subscriptionReactivationFactory->create();
-            $reactivationModel->load($this->getOrderIncrementId(), 'order_increment_id');
-            $reactivationModel->setOrderIncrementId($this->getOrderIncrementId());
-            $reactivationModel->setReactivatedAt(date('Y-m-d H:i:s'));
-            $reactivationModel->save();
-
-            if ($this->paymentMethodDeleted())
-            {
-                return $this->reactivateWithNewPaymentMethod($subscription, $params);
-            }
-            else
-            {
-                $params['default_payment_method'] = $this->getPaymentMethodId();
-            }
-
-            $reactivatedSubscription = $this->config->getStripeClient()->subscriptions->create($params);
-            $this->setStatus('reactivated');
-            $this->resourceModel->save($this);
-
-            $subscriptionData = [
-                'store_id' => ($this->getStoreId() ?? $this->helper->getStoreId()),
-                'livemode' => $reactivatedSubscription->livemode,
-                'subscription_id' => $reactivatedSubscription->id,
-                'order_increment_id' => ($this->getOrderIncrementId() ?? $reactivatedSubscription->metadata->{'Order #'}),
-                'magento_customer_id' => ($this->getMagentoCustomerId() ?? $this->session->getId()),
-                'stripe_customer_id' => ($this->getStripeCustomerId() ?? $reactivatedSubscription->customer),
-                'payment_method_id' => ($this->getPaymentMethodId() ?? $reactivatedSubscription->default_payment_method),
-                'quantity' => $reactivatedSubscription->quantity,
-                'currency' => $reactivatedSubscription->currency,
-                'status' => $reactivatedSubscription->status
-            ];
-            $this->subscriptionFactory->create($subscriptionData)->save();
-
-            $this->helper->addSuccess(__("The subscription has been reactivated."));
-
-            return 'stripe/customer/subscriptions';
-        } catch (\Exception $e) {
-            $this->helper->logError("Unable to reactivate the subscription: " . $e->getMessage(), $e->getTraceAsString());
-            throw new GenericException(__("Sorry, unable to reactivate the subscription."));
-        }
+        return $this->getStripeSubscriptionModel()->getStripeObject();
     }
 
-    protected function getNextStartDate($currentPeriodEnd)
+    public function reactivate()
     {
-        $activationTime = time();
-        $nextBillingDate = '';
+        if (!$this->getId())
+            throw new GenericException(__("The subscription could not be loaded."));
 
-        if ($activationTime <= $currentPeriodEnd) {
-            $nextBillingDate = $currentPeriodEnd;
+        $subscription = $this->getStripeSubscriptionModel()->getStripeObject();
+
+        $params['customer'] = $subscription->customer;
+        $params['items'] = [];
+
+        if (isset($subscription->items) && isset($subscription->items->data)) {
+            foreach ($subscription->items->data as $subItems) {
+
+                $subItemData = [];
+                $subItemData['price'] = $subItems->price->id;
+                $subItemData['quantity'] = $subItems->quantity;
+                $subItemData['metadata'] = json_decode(json_encode($subItems->metadata), true);
+                $params['items'][] = $subItemData;
+            }
         }
 
-        return $nextBillingDate;
+        $params['metadata'] = json_decode(json_encode($subscription->metadata), true);
+        $params['description'] = $subscription->description?: "Subscription";
+        $params['currency'] = $subscription->currency;
+        $params['collection_method'] = $subscription->collection_method;
+
+        // If the subscription had a trial, and is still within the trial period, set it on the reactivated subscription
+        if (is_numeric($subscription->trial_end) && $subscription->trial_end > time())
+        {
+            $params['trial_end'] = $subscription->trial_end;
+        }
+        // If the subscription had a billing anchor date which is still in the future, set it on the reactivated subscription
+        else if (is_numeric($subscription->billing_cycle_anchor) && $subscription->billing_cycle_anchor > time())
+        {
+            $params['billing_cycle_anchor'] = $subscription->billing_cycle_anchor;
+            $params['proration_behavior'] = 'none';
+        }
+        // If the subscription's current period invoice is paid, set the billing cycle anchor to the next billing date
+        else if ($this->isLatestInvoicePaid($subscription) && $subscription->current_period_end > time())
+        {
+            $params['billing_cycle_anchor'] = $subscription->current_period_end;
+            $params['proration_behavior'] = 'none';
+        }
+
+        if (isset($subscription->payment_settings) && isset($subscription->payment_settings->save_default_payment_method)) {
+            $params['payment_settings']['save_default_payment_method'] = $subscription->payment_settings->save_default_payment_method;
+        }
+
+        $reactivationModel = $this->subscriptionReactivationFactory->create();
+        $reactivationModel->load($this->getOrderIncrementId(), 'order_increment_id');
+        $reactivationModel->setOrderIncrementId($this->getOrderIncrementId());
+        $reactivationModel->setReactivatedAt(date('Y-m-d H:i:s'));
+        $reactivationModel->save();
+
+        if ($this->paymentMethodDeleted())
+        {
+            return $this->reactivateWithNewPaymentMethod($subscription, $params);
+        }
+        else
+        {
+            $params['default_payment_method'] = $this->getPaymentMethodId();
+        }
+
+        $reactivatedSubscription = $this->config->getStripeClient()->subscriptions->create($params);
+        $this->setStatus('reactivated');
+        $this->resourceModel->save($this);
+
+        $subscriptionData = [
+            'store_id' => ($this->getStoreId() ?? $this->helper->getStoreId()),
+            'livemode' => $reactivatedSubscription->livemode,
+            'subscription_id' => $reactivatedSubscription->id,
+            'order_increment_id' => ($this->getOrderIncrementId() ?? $reactivatedSubscription->metadata->{'Order #'}),
+            'magento_customer_id' => ($this->getMagentoCustomerId() ?? $this->session->getId()),
+            'stripe_customer_id' => ($this->getStripeCustomerId() ?? $reactivatedSubscription->customer),
+            'payment_method_id' => ($this->getPaymentMethodId() ?? $reactivatedSubscription->default_payment_method),
+            'quantity' => $reactivatedSubscription->quantity,
+            'currency' => $reactivatedSubscription->currency,
+            'status' => $reactivatedSubscription->status
+        ];
+        $this->subscriptionFactory->create($subscriptionData)->save();
+    }
+
+    private function isLatestInvoicePaid($subscription)
+    {
+        $invoice = $subscription->latest_invoice;
+        if (!$invoice)
+            return false;
+
+        $invoice = $this->config->getStripeClient()->invoices->retrieve($invoice, []);
+        return $invoice->status == "paid";
     }
 
     protected function setSubscriptionReactivateDetails($subscription, $createSubParams)
@@ -294,9 +301,8 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
                 $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($item);
 
                 if ($subscriptionProductModel->isSubscriptionProduct() &&
-                    $subscriptionProductModel->getProduct() &&
-                    $subscriptionProductModel->getProduct()->isSaleable() &&
-                    in_array($subscriptionProductModel->getProduct()->getId(), $productIds)
+                    $subscriptionProductModel->getIsSalable() &&
+                    in_array($subscriptionProductModel->getProductId(), $productIds)
                 )
                 {
                     $product = $subscriptionProductModel->getProduct();
@@ -304,10 +310,18 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
                     if ($item->getParentItem() && $item->getParentItem()->getProductType() == "configurable")
                     {
                         $item = $item->getParentItem();
-                        $product = $this->helper->loadProductById($item->getProductId());
 
-                        if (!$product || !$product->isSaleable())
+                        try
+                        {
+                            $product = $this->productHelper->getProduct($item->getProductId());
+
+                            if (!$product->getIsSalable())
+                                continue;
+                        }
+                        catch (\Exception $e)
+                        {
                             continue;
+                        }
                     }
 
                     $request = $this->dataHelper->getBuyRequest($item);
@@ -364,5 +378,31 @@ class Subscription extends \Magento\Framework\Model\AbstractModel
         }
 
         return !in_array($this->getPaymentMethodId(), $savedPaymentMethodsArray);
+    }
+
+    public function isNewSubscription()
+    {
+        $subscription = $this->getStripeSubscriptionModel()->getStripeObject();
+
+        // Fetch the subscription's invoices
+        $invoices = $this->config->getStripeClient()->invoices->all([
+            'subscription' => $subscription->id,
+            'limit' => 3
+        ]);
+
+        // If there are multiple invoices, its not a new subscription
+        if (count($invoices->data) > 1)
+            return false;
+
+        // Subscriptions with start dates will have no invoices
+        if (empty($invoices->data))
+            return true;
+
+        // If it has a single invoice, check if it was created within a minute of the subscription creation time.
+        $invoice = $invoices->data[0];
+        $subscriptionCreated = $subscription->created;
+        $invoiceCreated = $invoice->created;
+
+        return ($invoiceCreated - $subscriptionCreated) < 60;
     }
 }

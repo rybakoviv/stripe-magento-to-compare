@@ -31,6 +31,8 @@ class ChangeProrationsTest extends \PHPUnit\Framework\TestCase
      */
     public function testUpgrade()
     {
+        $this->markTestSkipped("Prorated subscription updates have been disabled in v4.1");
+
         $product = $this->tests->getProduct('simple-monthly-subscription-product');
         $product->setSubscriptionOptions([
             'upgrades_downgrades' => 1,
@@ -145,6 +147,8 @@ class ChangeProrationsTest extends \PHPUnit\Framework\TestCase
 
     public function testDowngrade()
     {
+        $this->markTestSkipped("Prorated subscription updates have been disabled in v4.1");
+
         $product = $this->tests->getProduct('simple-monthly-subscription-product');
         $product->setSubscriptionOptions([
             'upgrades_downgrades' => 1,

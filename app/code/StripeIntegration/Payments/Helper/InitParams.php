@@ -16,6 +16,7 @@ class InitParams
     private $subscriptionProductFactory;
     private $paymentMethodTypesHelper;
     private $paymentMethodOptionsService;
+    private $productHelper;
 
     public function __construct(
         \Magento\Framework\Serialize\SerializerInterface $serializer,
@@ -23,6 +24,7 @@ class InitParams
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Locale $localeHelper,
         \StripeIntegration\Payments\Helper\PaymentMethodTypes $paymentMethodTypesHelper,
+        \StripeIntegration\Payments\Helper\Product $productHelper,
         \StripeIntegration\Payments\Model\ExpressCheckout\Config $expressCheckoutConfig,
         \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Model\PaymentElement $paymentElement,
@@ -35,6 +37,7 @@ class InitParams
         $this->quoteHelper = $quoteHelper;
         $this->localeHelper = $localeHelper;
         $this->paymentMethodTypesHelper = $paymentMethodTypesHelper;
+        $this->productHelper = $productHelper;
         $this->expressCheckoutConfig = $expressCheckoutConfig;
         $this->config = $config;
         $this->paymentElement = $paymentElement;
@@ -180,7 +183,6 @@ class InitParams
             "mode" => "payment",
             "locale" => $this->localeHelper->getStripeJsLocale(),
             "paymentMethodCreation" => "manual",
-            "amount" => $stripeAmount,
             "currency" => strtolower($currency),
             "appearance" => [
                 "theme" => "stripe",
@@ -190,6 +192,9 @@ class InitParams
                 ],
             ]
         ];
+
+        if ($stripeAmount > 0)
+            $options["amount"] = $stripeAmount;
 
         if ($this->config->getPaymentAction() == "order")
         {
@@ -251,7 +256,8 @@ class InitParams
                     "colorText" => "#32325d",
                     "fontFamily" => '"Open Sans","Helvetica Neue", Helvetica, Arial, sans-serif'
                 ],
-            ]
+            ],
+            "currency" => strtolower($currency)
         ];
 
         if ($options["mode"] == "setup")
@@ -261,7 +267,6 @@ class InitParams
         else
         {
             $options["amount"] = $stripeAmount;
-            $options["currency"] = strtolower($currency);
         }
 
         return $options;
@@ -281,7 +286,7 @@ class InitParams
         if ($this->subscriptionProductFactory->create()->fromProductId($productId)->isSubscriptionProduct())
             return true;
 
-        $product = $this->helper->loadProductById($productId);
+        $product = $this->productHelper->getProduct($productId);
 
         // If it is a configurable product, and any of its configurable options is a subscription product, return true
         if ($product && $product->getTypeId() == "configurable")
@@ -297,14 +302,18 @@ class InitParams
         // If it is a bundle product, and any of its bundle options is a subscription product, return true
         if ($product && $product->getTypeId() == "bundle")
         {
-            $options = $product->getTypeInstance()->getOptionsCollection($product);
-            foreach ($options as $option)
+            $bundleType = $product->getTypeInstance();
+
+            // Load the selections (sub-products) for the bundle product
+            $optionIds = $bundleType->getOptionsIds($product);
+            $selections = $bundleType->getSelectionsCollection($optionIds, $product);
+
+            foreach ($selections as $selection)
             {
-                $selections = $option->getSelections();
-                foreach ($selections as $selection)
+                $productId = $selection->getProductId();
+                if ($this->subscriptionProductFactory->create()->fromProductId($productId)->isSubscriptionProduct())
                 {
-                    if ($this->subscriptionProductFactory->create()->fromProductId($selection->getProductId())->isSubscriptionProduct())
-                        return true;
+                    return true;
                 }
             }
         }

@@ -121,3 +121,29 @@ $stripeCoupon->setCouponDuration('months');
 $stripeCoupon->setCouponMonths(3);
 $stripeCoupon->setRuleId($rule->getRuleId());
 $stripeCoupon->save();
+
+// 10% discount including shipping
+
+/** @var RuleInterface $shippingRule */
+$shippingRule = $objectManager->create(RuleInterface::class);
+$shippingRule->setName('10% discount including shipping')
+    ->setIsAdvanced(true)
+    ->setStopRulesProcessing(false)
+    ->setDiscountQty(10)
+    ->setCustomerGroupIds([0])
+    ->setWebsiteIds([1])
+    ->setCouponType(RuleInterface::COUPON_TYPE_SPECIFIC_COUPON)
+    ->setSimpleAction(RuleInterface::DISCOUNT_ACTION_BY_PERCENT)
+    ->setDiscountAmount(10)
+    ->setApplyToShipping(true) // Apply discount to shipping
+    ->setIsActive(true);
+
+$shippingRuleRepository = $objectManager->get(RuleRepositoryInterface::class);
+$shippingRule = $shippingRuleRepository->save($shippingRule);
+
+$shippingCoupon = $objectManager->create(CouponInterface::class);
+$shippingCoupon->setCode('10_percent_shipping')
+    ->setRuleId($shippingRule->getRuleId());
+
+$shippingCouponRepository = $objectManager->get(CouponRepositoryInterface::class);
+$shippingCoupon = $shippingCouponRepository->save($shippingCoupon);

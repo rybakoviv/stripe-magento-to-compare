@@ -44,13 +44,16 @@ class RefundsTest extends \PHPUnit\Framework\TestCase
         $order = $this->tests->refreshOrder($order);
 
         // Order checks
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalInvoiced());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
-        $this->assertEquals(0, $order->getTotalDue());
-        $this->assertEquals(15.83, $order->getTotalRefunded());
-        $this->assertEquals(0, $order->getTotalCanceled());
-        $this->assertEquals("processing", $order->getState());
-        $this->assertEquals("processing", $order->getStatus());
+        $this->tests->compare($order->getData(), [
+            "grand_total" => 15.83,
+            "total_invoiced" => $order->getGrandTotal(),
+            "total_paid" => $order->getGrandTotal(),
+            "total_due" => 0,
+            "total_refunded" => "unset",
+            "total_canceled" => "unset",
+            "state" => "processing",
+            "status" => "processing",
+        ]);
         $this->assertFalse($order->canCancel());
         $this->assertTrue($order->canCreditmemo()); // Because Simple Product was paid
 
@@ -83,15 +86,18 @@ class RefundsTest extends \PHPUnit\Framework\TestCase
         $order = $this->tests->refreshOrder($order);
 
         // Order checks
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalInvoiced());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
-        $this->assertEquals(0, $order->getTotalDue());
-        $this->assertEquals(15.83, $order->getTotalRefunded());
-        $this->assertEquals(0, $order->getTotalCanceled());
-        $this->assertTrue($order->canCreditmemo());
-        $this->assertEquals("processing", $order->getState());
-        $this->assertEquals("processing", $order->getStatus());
+        $this->tests->compare($order->getData(), [
+            "grand_total" => 15.83,
+            "total_invoiced" => $order->getGrandTotal(),
+            "total_paid" => $order->getGrandTotal(),
+            "total_due" => 0,
+            "total_refunded" => "unset",
+            "total_canceled" => "unset",
+            "state" => "processing",
+            "status" => "processing",
+        ]);
         $this->assertFalse($order->canCancel());
+        $this->assertTrue($order->canCreditmemo());
 
         // Invoice checks
         $invoicesCollection = $order->getInvoiceCollection();
@@ -109,13 +115,16 @@ class RefundsTest extends \PHPUnit\Framework\TestCase
         $order = $this->tests->refreshOrder($order);
 
         // Order checks
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalInvoiced());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
-        $this->assertEquals(0, $order->getTotalDue());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalRefunded());
-        $this->assertEquals(0, $order->getTotalCanceled());
-        $this->assertEquals("processing", $order->getState()); // Not closed because the simple trial subscription is a simple product that must be shipped. Closed orders cannot be shipped.
-        $this->assertEquals("processing", $order->getStatus());
+        $this->tests->compare($order->getData(), [
+            "grand_total" => 15.83,
+            "total_invoiced" => $order->getGrandTotal(),
+            "total_paid" => $order->getGrandTotal(),
+            "total_due" => 0,
+            "total_refunded" => $order->getGrandTotal(),
+            "total_canceled" => "unset",
+            "state" => "processing",
+            "status" => "processing",
+        ]);
 
         // Refund the trial subscription
         $newOrder = $this->tests->getLastOrder();
@@ -128,14 +137,17 @@ class RefundsTest extends \PHPUnit\Framework\TestCase
         $order = $this->tests->refreshOrder($newOrder);
 
         // Order checks
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalInvoiced());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
-        $this->assertEquals(0, $order->getTotalDue());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalRefunded());
-        $this->assertEquals(0, $order->getTotalCanceled());
+        $this->tests->compare($order->getData(), [
+            "grand_total" => 15.83,
+            "total_invoiced" => $order->getGrandTotal(),
+            "total_paid" => $order->getGrandTotal(),
+            "total_due" => 0,
+            "total_refunded" => $order->getGrandTotal(),
+            "total_canceled" => "unset",
+            "state" => "closed",
+            "status" => "closed",
+        ]);
         $this->assertFalse($order->canCreditmemo());
-        $this->assertEquals("closed", $order->getState());
-        $this->assertEquals("closed", $order->getStatus());
 
         // Stripe checks
         $charges = $stripe->charges->all(['limit' => 10, 'customer' => $customer->id]);

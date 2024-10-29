@@ -50,7 +50,7 @@ class SubscriptionPriceCommandTest extends \PHPUnit\Framework\TestCase
 
         $order = $this->quote->placeOrder();
         $paymentIntent = $this->tests->confirmSubscription($order);
-        $this->assertEquals($order->getGrandTotal($oldGrandTotal), $order->getGrandTotal());
+        $this->assertEquals($oldGrandTotal, $order->getGrandTotal());
 
         // Refresh the order
         $order = $this->tests->refreshOrder($order);

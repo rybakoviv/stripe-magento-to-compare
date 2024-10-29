@@ -14,35 +14,33 @@ class MigrateSubscriptionPriceCommand extends Command
     public $fromProduct;
     public $toProduct;
     public $subscriptionSwitch;
-    private $helper = null;
     private $fromProductId;
     private $toProductId;
     private $resource;
-    private $subscriptionHelper;
     private $orderCollectionFactory;
     private $areaCodeFactory;
     private $configFactory;
-    private $genericFactory;
-    private $subscriptionsHelperFactory;
+    private $subscriptionProductFactory;
     private $subscriptionSwitchFactory;
+    private $productHelper;
 
     public function __construct(
         \Magento\Framework\App\ResourceConnection $resource,
         \Magento\Sales\Model\ResourceModel\Order\CollectionFactory $orderCollectionFactory,
         \StripeIntegration\Payments\Helper\AreaCodeFactory $areaCodeFactory,
         \StripeIntegration\Payments\Model\ConfigFactory $configFactory,
-        \StripeIntegration\Payments\Helper\GenericFactory $genericFactory,
-        \StripeIntegration\Payments\Helper\SubscriptionsFactory $subscriptionsHelperFactory,
-        \StripeIntegration\Payments\Helper\SubscriptionSwitchFactory $subscriptionSwitchFactory
+        \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
+        \StripeIntegration\Payments\Helper\SubscriptionSwitchFactory $subscriptionSwitchFactory,
+        \StripeIntegration\Payments\Helper\Product $productHelper
     )
     {
         $this->resource = $resource;
         $this->orderCollectionFactory = $orderCollectionFactory;
         $this->areaCodeFactory = $areaCodeFactory;
         $this->configFactory = $configFactory;
-        $this->genericFactory = $genericFactory;
-        $this->subscriptionsHelperFactory = $subscriptionsHelperFactory;
+        $this->subscriptionProductFactory = $subscriptionProductFactory;
         $this->subscriptionSwitchFactory = $subscriptionSwitchFactory;
+        $this->productHelper = $productHelper;
 
         parent::__construct();
     }
@@ -63,15 +61,13 @@ class MigrateSubscriptionPriceCommand extends Command
         $areaCode->setAreaCode();
 
         $this->config = $this->configFactory->create();
-        $this->helper = $this->genericFactory->create();
-        $this->subscriptionHelper = $this->subscriptionsHelperFactory->create();
         $this->subscriptionSwitch = $this->subscriptionSwitchFactory->create();
 
         $this->fromProductId = $input->getArgument("original_product_id");
         $this->toProductId = $input->getArgument("new_product_id");
 
-        $this->fromProduct = $this->helper->loadProductById($this->fromProductId);
-        $this->toProduct = $this->helper->loadProductById($this->toProductId);
+        $this->fromProduct = $this->productHelper->getProduct($this->fromProductId);
+        $this->toProduct = $this->productHelper->getProduct($this->toProductId);
 
         if (!$this->fromProduct || !$this->fromProduct->getId())
             throw new GenericException("No such product with ID " . $this->fromProductId);
@@ -79,17 +75,17 @@ class MigrateSubscriptionPriceCommand extends Command
         if (!$this->toProduct || !$this->toProduct->getId())
             throw new GenericException("No such product with ID " . $this->toProductId);
 
-        if (!$this->subscriptionHelper->isSubscriptionOptionEnabled($this->fromProduct->getId()))
+        if (!$this->subscriptionProductFactory->create()->fromProductId($this->fromProduct->getId())->isSubscriptionProduct())
             throw new GenericException($this->fromProduct->getName() . " is not a subscription product");
 
-        if (!$this->subscriptionHelper->isSubscriptionOptionEnabled($this->toProduct->getId()))
+        if (!$this->subscriptionProductFactory->create()->fromProductId($this->toProduct->getId())->isSubscriptionProduct())
             throw new GenericException($this->toProduct->getName() . " is not a subscription product");
 
         if ($this->fromProduct->getTypeId() == "virtual" && $this->toProduct->getTypeId() == "simple")
             throw new GenericException("It is not possible to migrate Virtual subscriptions to Simple subscriptions because we don't have a shipping address.");
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $output->writeln("Loading ...");
 

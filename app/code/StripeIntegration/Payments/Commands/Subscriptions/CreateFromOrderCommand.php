@@ -50,7 +50,7 @@ class CreateFromOrderCommand extends Command
         $this->addArgument('payment_method_id', InputArgument::OPTIONAL);
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $areaCode = $this->areaCodeFactory->create();
         $areaCode->setAreaCode();
