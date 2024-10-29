@@ -4,7 +4,6 @@ namespace StripeIntegration\Payments\Plugin\Sales\Model\Order\Payment\State;
 
 use Magento\Sales\Model\Order\StatusResolver;
 use Magento\Framework\App\ObjectManager;
-use StripeIntegration\Payments\Model\Checkout\Flow;
 
 class AuthorizeCaptureCommand
 {
@@ -12,7 +11,7 @@ class AuthorizeCaptureCommand
     private $checkoutFlow;
 
     public function __construct(
-        Flow $checkoutFlow,
+        \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
         StatusResolver $statusResolver = null
     )
     {
@@ -21,13 +20,13 @@ class AuthorizeCaptureCommand
     }
 
     /**
-     * After execute method of OrderCommand
+     * After execute method of AuthorizeCommand or CaptureCommand
      *
      * @param mixed $subject
      * @param string $result
      * @param \Magento\Sales\Api\Data\OrderPaymentInterface $payment
      * @param $amount
-     * @param \Magento\Sales\Api\Data\OrderInterface $order
+     * @param \Magento\Payment\Model\InfoInterface $payment
      * @return string
      */
     public function afterExecute(
@@ -37,9 +36,34 @@ class AuthorizeCaptureCommand
         $amount,
         $order
     ) {
-        /** @var \Magento\Sales\Model\Order\Payment $payment */
+        if ($payment->getAdditionalInformation("payment_action") == "order")
+        {
+            $state = 'processing';
+            $status = $this->statusResolver->getOrderStatusByState($order, $state);
+            $message = __("Captured amount %1.");
+            $order->setState($state);
+            $order->setStatus($status);
+            return __($message, $order->getBaseCurrency()->formatTxt($amount));
+        }
+
         if ($payment->getMethod() == "stripe_payments")
         {
+            if ($payment->getAdditionalInformation("is_subscription_update"))
+            {
+                $subscriptionId = $payment->getAdditionalInformation("subscription_id");
+                $state = 'complete';
+                $status = $this->statusResolver->getOrderStatusByState($order, $state);
+                $message = __("Subscription %1 has been updated from %2 to %3. The old order was #%4.",
+                    $subscriptionId,
+                    $payment->getAdditionalInformation("previous_subscription_amount"),
+                    $payment->getAdditionalInformation("new_subscription_amount"),
+                    $payment->getAdditionalInformation("original_order_increment_id")
+                );
+                $order->setState($state);
+                $order->setStatus($status);
+                return __($message, $order->getBaseCurrency()->formatTxt($amount));
+            }
+
             if ($payment->getIsTransactionPending())
             {
                 $state = 'pending_payment';
@@ -71,7 +95,6 @@ class AuthorizeCaptureCommand
                 return __($message, $order->getBaseCurrency()->formatTxt($amount));
             }
 
-            /** @var \Magento\Sales\Model\Order\Payment $payment */
             if ($payment->getAdditionalInformation("is_trial_subscription_setup"))
             {
                 $state = 'processing';

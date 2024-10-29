@@ -60,23 +60,6 @@ class Data
         return $this->scopeConfig->getValue($field, \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $storeId);
     }
 
-    public function isMOTOError(\Stripe\ErrorObject $error)
-    {
-        if (empty($error->code))
-            return false;
-
-        if (empty($error->param))
-            return false;
-
-        if ($error->code != "parameter_unknown")
-            return false;
-
-        if ($error->param != "payment_method_options[card][moto]")
-            return false;
-
-        return true;
-    }
-
     public function convertToSetupIntentConfirmParams($paymentIntentConfirmParams)
     {
         $confirmParams = $paymentIntentConfirmParams;
@@ -88,6 +71,9 @@ class Data
                 if (isset($confirmParams['payment_method_options'][$key]['setup_future_usage']))
                     unset($confirmParams['payment_method_options'][$key]['setup_future_usage']);
 
+                if (isset($confirmParams['payment_method_options'][$key]['moto']))
+                    unset($confirmParams['payment_method_options'][$key]['moto']);
+
                 if (!in_array($key, \StripeIntegration\Payments\Helper\PaymentMethod::SETUP_INTENT_PAYMENT_METHOD_OPTIONS))
                     unset($confirmParams['payment_method_options'][$key]);
 
@@ -98,6 +84,9 @@ class Data
             if (empty($confirmParams['payment_method_options']))
                 unset($confirmParams['payment_method_options']);
         }
+
+        if (isset($confirmParams['off_session']))
+            unset($confirmParams['off_session']);
 
         return $confirmParams;
     }

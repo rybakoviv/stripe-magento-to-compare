@@ -8,6 +8,7 @@ use Magento\Authorization\Model\UserContextInterface;
 use Magento\Framework\Exception\LocalizedException;
 use StripeIntegration\Payments\Exception\GenericException;
 use StripeIntegration\Payments\Exception\PaymentMethodInUse;
+use StripeIntegration\Payments\Exception\InvalidPaymentMethod;
 
 class Generic
 {
@@ -27,7 +28,6 @@ class Generic
     private $adminOrderAddressForm;
     private $customerRegistry;
     private $messageManager;
-    private $productFactory;
     private $cache;
     private $userContext;
     private $priceCurrency;
@@ -45,7 +45,6 @@ class Generic
     private $ruleRepository;
     private $invoiceSender;
     private $quoteHelper;
-    private $taxConfig;
     private $transactionSearchResultFactory;
     private $invoiceRepository;
     private $transactionRepository;
@@ -54,7 +53,6 @@ class Generic
     private $sessionManager;
     private $multishippingQuoteFactory;
     private $productMetadata;
-    private $products;
     private $restController;
     private $logger;
     private $configFactory;
@@ -79,7 +77,6 @@ class Generic
         \Magento\Sales\Block\Adminhtml\Order\Create\Form\Address $adminOrderAddressForm,
         \Magento\Customer\Model\CustomerRegistry $customerRegistry,
         \Magento\Framework\Message\ManagerInterface $messageManager,
-        \Magento\Catalog\Model\ProductFactory $productFactory,
         \Magento\Framework\UrlInterface $urlBuilder,
         \Magento\Framework\App\CacheInterface $cache,
         \Magento\Authorization\Model\UserContextInterface $userContext,
@@ -102,7 +99,6 @@ class Generic
         \Magento\Sales\Api\Data\TransactionSearchResultInterfaceFactory $transactionSearchResultFactory,
         \Magento\Sales\Model\Order\Email\Sender\InvoiceSender $invoiceSender,
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
-        \Magento\Tax\Model\Config $taxConfig,
         \Magento\Sales\Api\InvoiceRepositoryInterface $invoiceRepository,
         \Magento\Sales\Api\TransactionRepositoryInterface $transactionRepository,
         \Magento\Sales\Api\CreditmemoRepositoryInterface $creditmemoRepository,
@@ -131,7 +127,6 @@ class Generic
         $this->adminOrderAddressForm = $adminOrderAddressForm;
         $this->customerRegistry = $customerRegistry;
         $this->messageManager = $messageManager;
-        $this->productFactory = $productFactory;
         $this->urlBuilder = $urlBuilder;
         $this->cache = $cache;
         $this->userContext = $userContext;
@@ -152,7 +147,6 @@ class Generic
         $this->ruleRepository = $ruleRepository;
         $this->invoiceSender = $invoiceSender;
         $this->quoteHelper = $quoteHelper;
-        $this->taxConfig = $taxConfig;
         $this->transactionSearchResultFactory = $transactionSearchResultFactory;
         $this->invoiceRepository = $invoiceRepository;
         $this->transactionRepository = $transactionRepository;
@@ -211,25 +205,6 @@ class Generic
         {
             return null;
         }
-    }
-
-    public function loadProductById($productId)
-    {
-        if (!isset($this->products))
-            $this->products = [];
-
-        if (!is_numeric($productId))
-            return null;
-
-        if (!empty($this->products[$productId]))
-            return $this->products[$productId];
-
-        $product = $this->productFactory->create()->load($productId);
-
-        if (!$product || !$product->getId())
-            return $this->products[$productId] = null;
-        else
-            return $this->products[$productId] = $product;
     }
 
     public function loadCustomerById($customerId)
@@ -497,124 +472,7 @@ class Generic
         }
     }
 
-    public function captureOrder($order)
-    {
-        foreach($order->getInvoiceCollection() as $invoice)
-        {
-            $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
-            $invoice->capture();
-            $this->invoiceRepository->save($invoice);
-        }
-    }
-
-    public function getInvoiceAmounts($invoice, $details)
-    {
-        $currency = strtolower($details['currency']);
-        $amount = $this->convert->stripeAmountToMagentoAmount($details['amount'], $currency);
-        $baseAmount = round(floatval($amount / $invoice->getBaseToOrderRate()), 2);
-
-        if (!empty($details["shipping"]))
-        {
-            $shipping = $this->convert->stripeAmountToMagentoAmount($details['shipping'], $currency);
-            $baseShipping = round(floatval($shipping / $invoice->getBaseToOrderRate()), 2);
-        }
-        else
-        {
-            $shipping = 0;
-            $baseShipping = 0;
-        }
-
-        if (!empty($details["tax"]))
-        {
-            $tax = $this->convert->stripeAmountToMagentoAmount($details['tax'], $currency);
-            $baseTax = round(floatval($tax / $invoice->getBaseToOrderRate()), 2);
-        }
-        else
-        {
-            $tax = 0;
-            $baseTax = 0;
-        }
-
-        return [
-            "amount" => $amount,
-            "base_amount" => $baseAmount,
-            "shipping" => $shipping,
-            "base_shipping" => $baseShipping,
-            "tax" => $tax,
-            "base_tax" => $baseTax
-        ];
-    }
-
-    // Used for partial invoicing triggered from a partial Stripe dashboard capture
-    public function adjustInvoiceAmounts(&$invoice, $details)
-    {
-        if (!is_array($details))
-            return;
-
-        $amounts = $this->getInvoiceAmounts($invoice, $details);
-        $amount = $amounts['amount'];
-        $baseAmount = $amounts['base_amount'];
-
-        if ($invoice->getGrandTotal() != $amount)
-        {
-            if (!empty($amounts['shipping']))
-                $invoice->setShippingAmount($amounts['shipping']);
-
-            if (!empty($amounts['base_shipping']))
-                $invoice->setBaseShippingAmount($amounts['base_shipping']);
-
-            if (!empty($amounts['tax']))
-                $invoice->setTaxAmount($amounts['tax']);
-
-            if (!empty($amounts['base_tax']))
-                $invoice->setBaseTaxAmount($amounts['base_tax']);
-
-            $invoice->setGrandTotal($amount);
-            $invoice->setBaseGrandTotal($baseAmount);
-
-            $subtotal = 0;
-            $baseSubtotal = 0;
-            $items = $invoice->getAllItems();
-            foreach ($items as $item)
-            {
-                $subtotal += $item->getRowTotal();
-                $baseSubtotal += $item->getBaseRowTotal();
-            }
-
-            $invoice->setSubtotal($subtotal);
-            $invoice->setBaseSubtotal($baseSubtotal);
-        }
-    }
-
-    public function invoiceSubscriptionOrder($order, $transactionId = null, $captureCase = \Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE, $amount = null, $save = true)
-    {
-        $invoice = $this->invoiceService->prepareInvoice($order);
-        $invoice->setRequestedCaptureCase($captureCase);
-
-        if ($transactionId)
-        {
-            $invoice->setTransactionId($transactionId);
-            $order->getPayment()->setLastTransId($transactionId);
-        }
-
-        $this->adjustInvoiceAmounts($invoice, $amount);
-
-        $invoice->register();
-
-        $comment = __("Captured payment of %1 through Stripe.", $order->formatPrice($invoice->getGrandTotal()));
-        $order->addStatusToHistory($status = 'processing', $comment, $isCustomerNotified = false);
-
-        if ($save)
-        {
-            $this->saveInvoice($invoice);
-            $this->orderHelper->saveOrder($order);
-            $this->sendInvoiceEmail($invoice);
-        }
-
-        return $invoice;
-    }
-
-    public function invoiceOrder($order, $transactionId = null, $captureCase = \Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE, $amount = null, $save = true)
+    public function invoiceOrder($order, $transactionId = null, $captureCase = \Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE, bool $save = true)
     {
         // This will kick in with "Authorize Only" mode orders, but not with "Authorize & Capture"
         if ($order->canInvoice())
@@ -627,8 +485,6 @@ class Generic
                 $invoice->setTransactionId($transactionId);
                 $order->getPayment()->setLastTransId($transactionId);
             }
-
-            $this->adjustInvoiceAmounts($invoice, $amount);
 
             $invoice->register();
 
@@ -654,8 +510,6 @@ class Generic
                 {
                     $invoice->setRequestedCaptureCase($captureCase);
 
-                    $this->adjustInvoiceAmounts($invoice, $amount);
-
                     if ($transactionId && !$invoice->getTransactionId())
                     {
                         $invoice->setTransactionId($transactionId);
@@ -677,40 +531,6 @@ class Generic
         }
 
         return null;
-    }
-
-    // Pending orders are the ones that were placed with an asynchronous payment method, such as SOFORT or SEPA Direct Debit,
-    // which may finalize the charge after several days or weeks
-    public function invoicePendingOrder($order, $transactionId = null, $amount = null)
-    {
-        if (!$order->canInvoice())
-            throw new GenericException("Order #" . $order->getIncrementId() . " cannot be invoiced.");
-
-        $invoice = $this->invoiceService->prepareInvoice($order);
-
-        if ($transactionId)
-        {
-            $captureCase = \Magento\Sales\Model\Order\Invoice::NOT_CAPTURE;
-            $invoice->setTransactionId($transactionId);
-            $order->getPayment()->setLastTransId($transactionId);
-        }
-        else
-        {
-            $captureCase = \Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE;
-        }
-
-        $invoice->setRequestedCaptureCase($captureCase);
-
-        $this->adjustInvoiceAmounts($invoice, $amount);
-
-        $invoice->register();
-
-        $this->sendInvoiceEmail($invoice);
-
-        $this->saveInvoice($invoice);
-        $this->orderHelper->saveOrder($order);
-
-        return $invoice;
     }
 
     public function cancelOrCloseOrder($order, $refundInvoices = false, $refundOffline = true)
@@ -856,17 +676,6 @@ class Generic
         return round(floatval($amount / $rate), 2);
     }
 
-    public function convertStripeAmountToBaseOrderAmount($amount, $currency, $order)
-    {
-        if (strtolower($currency) != strtolower($order->getOrderCurrencyCode()))
-            throw new GenericException("The order currency does not match the Stripe currency");
-
-        $magentoAmount = $this->convert->stripeAmountToMagentoAmount($amount, $currency);
-        $baseAmount = round($magentoAmount / (float)$order->getBaseToOrderRate(), 2);
-
-        return $baseAmount;
-    }
-
     public function convertStripeAmountToOrderAmount($amount, $currency, $order)
     {
         if (strtolower($currency) != strtolower($order->getOrderCurrencyCode()))
@@ -951,14 +760,6 @@ class Generic
         $description = __("Multishipping orders %1 by %2", implode(", ", $orderIncrementIds), $customerName);
 
         return $description;
-    }
-
-    public function supportsSubscriptions(?string $method)
-    {
-        if (empty($method))
-            return false;
-
-        return in_array($method, ["stripe_payments", "stripe_payments_checkout", "stripe_payments_express"]);
     }
 
     public function isStripeCheckoutMethod(?string $method)
@@ -1253,14 +1054,7 @@ class Generic
                     $available = $this->formatStripePrice($availableAmount, $ch->currency);
                     $requested = $this->formatStripePrice($stripeAmount, $ch->currency);
 
-                    if ($this->orderHelper->hasSubscriptionsIn($order->getAllItems()))
-                        $msg = __("Capturing %1 instead of %2 because subscription items cannot be captured.", $available, $requested);
-                    else
-                        $msg = __("The maximum available amount to capture is %1, but a capture of %2 was requested. Will capture %1 instead.", $available, $requested);
-
-                    $this->addWarning($msg);
-                    $this->orderHelper->addOrderComment($msg, $order);
-                    $stripeAmount = $availableAmount;
+                    throw new LocalizedException(__("The maximum available amount to capture is %1, but a capture of %2 was requested.", $available, $requested));
                 }
 
                 $key = "admin_captured_" . $paymentObject->id;
@@ -1336,7 +1130,7 @@ class Generic
                             $stripeCustomer = $this->stripeCustomerModelFactory->create()->fromStripeCustomerId($customerId);
                             $stripeCustomer->deletePaymentMethod($paymentMethod['id']);
                         }
-                        catch (PaymentMethodInUse $e)
+                        catch (PaymentMethodInUse|InvalidPaymentMethod $e)
                         {
                             continue;
                         }
@@ -1485,6 +1279,9 @@ class Generic
         {
             $payment->setAdditionalInformation('token', $data['payment_method']);
 
+            if (isset($data['save_payment_method']) && $data['save_payment_method'])
+                $payment->setAdditionalInformation('save_payment_method', true);
+
             $config = $this->getConfig();
 
             if ($config->reCheckCVCForSavedCards())
@@ -1527,16 +1324,6 @@ class Generic
 
         if (!empty($data['is_migrated_subscription']))
             $payment->setAdditionalInformation('is_migrated_subscription', true);
-    }
-
-    public function shippingIncludesTax($store = null)
-    {
-        return $this->taxConfig->shippingPriceIncludesTax($store);
-    }
-
-    public function priceIncludesTax($store = null)
-    {
-        return $this->taxConfig->priceIncludesTax($store);
     }
 
     /**
@@ -1601,7 +1388,6 @@ class Generic
 
     public function clearCache()
     {
-        $this->products = [];
         $this->quoteHelper->clearCache();
         $this->orderHelper->clearCache();
         return $this;
@@ -1713,9 +1499,7 @@ class Generic
 
     public function removeTransactions($order)
     {
-        $order->getPayment()->setLastTransId(null);
-        $order->getPayment()->setTransactionId(null);
-        $order->getPayment()->save();
+        $this->orderHelper->removeTransactions($order);
     }
 
     public function magentoVersion($operator, $version)

@@ -494,7 +494,8 @@ define(
 
                 if (this.shouldHideRedirectBasedPaymentMethods())
                 {
-                    options.paymentMethodTypes = ['card', 'link'];
+                    // Link is not included because it might be disabled from the Stripe Dashboard
+                    options.paymentMethodTypes = ['card'];
                 }
                 else if (options.paymentMethodTypes)
                 {
@@ -610,6 +611,20 @@ define(
 
                 if (totals && totals.grand_total)
                 {
+                    // If total_segments includes a grand_total, we use that instead
+                    if (totals.total_segments && totals.total_segments.length > 0)
+                    {
+                        for (var i = 0; i < totals.total_segments.length; i++)
+                        {
+                            var segment = totals.total_segments[i];
+                            if (segment.code == "grand_total")
+                            {
+                                return this.convertToStripeAmount(segment.value, this.getElementsCurrency());
+                            }
+                        }
+                    }
+
+                    // Othewise use the quote grand total
                     var amount = totals.grand_total;
                     return this.convertToStripeAmount(amount, this.getElementsCurrency());
                 }

@@ -15,12 +15,14 @@ class Checkout extends \Magento\Payment\Model\Method\Adapter
 {
     private $config;
     private $helper;
-    private $subscriptionsHelper;
+    private $checkoutSessionHelper;
+    private $quoteHelper;
 
     public function __construct(
         \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Helper\Generic $helper,
-        \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
+        \StripeIntegration\Payments\Helper\CheckoutSession $checkoutSessionHelper,
+        \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         ManagerInterface $eventManager,
         ValueHandlerPoolInterface $valueHandlerPool,
         PaymentDataObjectFactory $paymentDataObjectFactory,
@@ -34,7 +36,8 @@ class Checkout extends \Magento\Payment\Model\Method\Adapter
     ) {
         $this->config = $config;
         $this->helper = $helper;
-        $this->subscriptionsHelper = $subscriptionsHelper;
+        $this->checkoutSessionHelper = $checkoutSessionHelper;
+        $this->quoteHelper = $quoteHelper;
 
         parent::__construct(
             $eventManager,
@@ -61,7 +64,7 @@ class Checkout extends \Magento\Payment\Model\Method\Adapter
             $this->config->isRedirectPaymentFlow() &&
             !$this->helper->isAdmin() &&
             !$this->helper->isMultiShipping() &&
-            !$this->subscriptionsHelper->isSubscriptionUpdate();
+            !$this->checkoutSessionHelper->isSubscriptionUpdate();
     }
 
     public function isAvailable(\Magento\Quote\Api\Data\CartInterface $quote = null)
@@ -72,7 +75,20 @@ class Checkout extends \Magento\Payment\Model\Method\Adapter
         if (!$this->isEnabled($quote))
             return false;
 
-        return parent::isAvailable($quote);
+        if ($quote && $this->getConfigPaymentAction() == 'order')
+        {
+            $hasNonBillableSubscriptionItems = !empty($this->quoteHelper->getNonBillableSubscriptionItems($quote->getAllItems()));
+            $hasFullyDiscountedSubscriptions = $this->quoteHelper->hasFullyDiscountedSubscriptions($quote);
+        }
+        else
+        {
+            $hasNonBillableSubscriptionItems = false;
+            $hasFullyDiscountedSubscriptions = false;
+        }
+
+        return $hasNonBillableSubscriptionItems ||
+            $hasFullyDiscountedSubscriptions ||
+            parent::isAvailable($quote);
     }
 
     public function getConfigPaymentAction()

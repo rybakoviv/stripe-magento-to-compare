@@ -28,6 +28,8 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
     private $addressFactory;
     private $quoteHelper;
     private $orderHelper;
+    private $checkoutFlow;
+    private $convert;
 
     public function __construct(
         \StripeIntegration\Payments\Model\Stripe\Checkout\SessionFactory $stripeCheckoutSessionFactory,
@@ -39,6 +41,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         \StripeIntegration\Payments\Helper\Address $addressHelper,
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
+        \StripeIntegration\Payments\Helper\Convert $convert,
         \StripeIntegration\Payments\Model\Stripe\CouponFactory $stripeCouponFactory,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \StripeIntegration\Payments\Model\Stripe\ProductFactory $stripeProductFactory,
@@ -46,6 +49,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         \StripeIntegration\Payments\Helper\Compare $compare,
         \StripeIntegration\Payments\Model\Subscription\StartDateFactory $startDateFactory,
         \StripeIntegration\Payments\Model\ResourceModel\CheckoutSession $resourceModel,
+        \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
         \Magento\Framework\Model\Context $context,
         \Magento\Customer\Model\AddressFactory $addressFactory,
         \Magento\Framework\Registry $registry,
@@ -71,6 +75,8 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         $this->addressFactory = $addressFactory;
         $this->quoteHelper = $quoteHelper;
         $this->orderHelper = $orderHelper;
+        $this->checkoutFlow = $checkoutFlow;
+        $this->convert = $convert;
         parent::__construct($context, $registry, $resource, $resourceCollection, $data);
     }
 
@@ -83,6 +89,11 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
     {
         try
         {
+            if ($this->checkoutFlow->shouldNotBillTrialSubscriptionItems())
+            {
+                throw new GenericException("Cannot create a Checkout Session from a quote while the order is being placed.");
+            }
+
             $this->quote = $quote;
 
             if (empty($quote) || empty($quote->getId()))
@@ -93,28 +104,6 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             if ($this->getCheckoutSessionId())
             {
                 $this->stripeCheckoutSession  = $this->stripeCheckoutSessionFactory->create()->load($this->getCheckoutSessionId());
-
-                $params = $this->getParamsFromQuote($quote);
-
-                if ($this->hasChanged($params))
-                {
-                    $this->cancelOrder(__("The customer returned from Stripe and changed the cart details."));
-                    $this->cancelCheckoutSession();
-                    $this->createFromQuote($quote);
-                }
-                else if ($this->hasExpired())
-                {
-                    $this->cancelOrder(__("The customer left from the payment page without paying."));
-                    $this->cancelCheckoutSession();
-                    $this->createFromQuote($quote);
-                }
-                else if ($this->needsUpdate($params))
-                {
-                    $this->cancelCheckoutSession();
-                    $this->createFromQuote($quote);
-                }
-
-                return $this;
             }
 
             return $this;
@@ -155,7 +144,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             $this->stripeCheckoutSession = $this->stripeCheckoutSessionFactory->create();
         }
 
-        if ($cancelOldOrder && $this->getOrderIncrementId() && $this->getOrderIncrementId() != $order->getIncrementId())
+        if ($cancelOldOrder && $this->getOrderIncrementId() && $this->getOrderIncrementId() != $order->getIncrementId() && !$this->isComplete())
         {
             $oldOrder = $this->orderHelper->loadOrderByIncrementId($this->getOrderIncrementId());
             $comment = __("The cart contents or customer details have changed. The order is canceled because a new one will be placed (#%1) with the new details.", $order->getIncrementId());
@@ -171,7 +160,13 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             $this->stripeCheckoutSession->fromParams($params);
             $stripeCheckoutSessionObject = $this->stripeCheckoutSession->getStripeObject();
         }
-        else if ($this->hasChanged($params) || $this->needsUpdate($params))
+        else if (
+            $this->hasChanged($params) ||
+            $this->needsUpdate($params) ||
+            $this->hasExpired() ||
+            $this->isComplete() ||
+            empty($stripeCheckoutSessionObject->payment_intent) // Case for subscriptions
+        )
         {
             $this->cancelCheckoutSession();
             $this->stripeCheckoutSession->fromParams($params);
@@ -194,7 +189,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         return $this;
     }
 
-    protected function createFromQuote($quote)
+    public function createFromQuote($quote)
     {
         $params = $this->getParamsFromQuote($quote);
         if (!empty($params["payment_intent_data"])) // In subscription mode, this is not set
@@ -207,6 +202,14 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             ->save();
     }
 
+    private function createDummyCheckoutSessionFrom($quote)
+    {
+        $params = $this->getParamsFromQuote($quote);
+        $stripeCheckoutSession = $this->stripeCheckoutSessionFactory->create();
+        $checkoutSession = $stripeCheckoutSession->fromParams($params)->getStripeObject();
+        return $checkoutSession;
+    }
+
     public function getAvailablePaymentMethods($quote)
     {
         $methods = [];
@@ -214,26 +217,12 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         if (empty($quote) || empty($quote->getId()))
             return $methods;
 
-        try
-        {
-            $checkoutSession = $this->fromQuote($quote)->getStripeObject();
+        $checkoutSession = $this->createDummyCheckoutSessionFrom($quote);
 
-            if (!$checkoutSession)
-            {
-                $this->createFromQuote($quote);
-                $checkoutSession = $this->stripeCheckoutSession->getStripeObject();
-            }
+        if (!empty($checkoutSession->payment_method_types))
+            $methods = $checkoutSession->payment_method_types;
 
-            if (!empty($checkoutSession->payment_method_types))
-                $methods = $checkoutSession->payment_method_types;
-
-            return $methods;
-        }
-        catch (\Exception $e)
-        {
-            $this->paymentsHelper->logError($e->getMessage());
-            throw $e;
-        }
+        return $methods;
     }
 
     public function updateCustomerEmail($email)
@@ -256,16 +245,20 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         }
 
         $quote = $this->quoteHelper->getQuote();
-        $this->fromQuote($quote);
+
+        $this->resourceModel->load($this, $quote->getId(), 'quote_id');
 
         if (!$this->getCheckoutSessionId() || !$this->stripeCheckoutSession)
         {
             return;
         }
-        else
+
+        /** @var \Stripe\Checkout\Session $checkoutSession */
+        $checkoutSession = $this->stripeCheckoutSession->load($this->getCheckoutSessionId())->getStripeObject();
+
+        if ($this->isComplete() || $this->hasExpired())
         {
-            /** @var \Stripe\Checkout\Session $checkoutSession */
-            $checkoutSession = $this->stripeCheckoutSession->load($this->getCheckoutSessionId())->getStripeObject();
+            return;
         }
 
         if (!empty($checkoutSession->customer_details->email) && $email != $checkoutSession->customer_details->email)
@@ -278,10 +271,10 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             }
             else
             {
-                $this->cancelCheckoutSession();
+                // $this->cancelCheckoutSession();
                 $quote->setCustomerEmail($email);
                 $this->quoteHelper->saveQuote($quote);
-                $this->createFromQuote($quote);
+                // $this->createFromQuote($quote);
             }
         }
     }
@@ -294,17 +287,22 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         return $this->stripeCheckoutSession->getStripeObject();
     }
 
-    protected function getParamsFromOrder($order)
+    public function getParamsFromOrder($order)
     {
         $subscription = $this->subscriptionsHelper->getSubscriptionFromOrder($order);
-        $lineItems = $this->getLineItems($subscription, $order->getGrandTotal(), $order->getOrderCurrencyCode());
+
+        $grandTotal = $order->getGrandTotal();
+        if (!empty($subscription['profile']['deducted_order_amount']))
+            $grandTotal += $subscription['profile']['deducted_order_amount'];
+
+        $lineItems = $this->getLineItems($subscription, $grandTotal, $order->getOrderCurrencyCode());
         $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
         $params = $this->getParamsFrom($lineItems, $subscription, $quote, $order);
 
         return $params;
     }
 
-    protected function getParamsFromQuote($quote)
+    public function getParamsFromQuote($quote)
     {
         if (empty($quote))
             throw new GenericException("No quote specified for Checkout params.");
@@ -358,7 +356,8 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             $intervalCount = $profile['interval_count'];
 
             $subscriptionTotal = $this->subscriptionsHelper->getSubscriptionTotalFromProfile($profile);
-            $subscriptionTotal = round(floatval($subscriptionTotal), 2);
+            $currencyPrecision = $this->convert->getCurrencyPrecision($currency);
+            $subscriptionTotal = round(floatval($subscriptionTotal), $currencyPrecision);
 
             $remainingAmount = $grandTotal - $subscriptionTotal;
 
@@ -391,7 +390,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
             $params["mode"] = "subscription";
             $params["line_items"] = $lineItems;
             $params["subscription_data"] = [
-                "metadata" => $this->subscriptionsHelper->collectMetadataForSubscription($quote, $subscription, $order)
+                "metadata" => $this->subscriptionsHelper->collectMetadataForSubscription($subscription['profile'])
             ];
 
             $profile = $subscription['profile'];
@@ -550,7 +549,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
 
     protected function getRecurringPayment($subscription, $subscriptionsProductIDs, $allSubscriptionsTotal, $currency, $interval, $intervalCount)
     {
-        if (!empty($subscription['profile']) && $allSubscriptionsTotal > 0)
+        if (!empty($subscription['profile']))
         {
             $profile = $subscription['profile'];
 
@@ -657,7 +656,7 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
     }
 
     // Compares parameters which may affect which payment methods will be available at the Stripe Checkout landing page
-    protected function hasChanged($params)
+    public function hasChanged($params)
     {
         $checkoutSession = $this->stripeCheckoutSession->getStripeObject();
 
@@ -739,12 +738,15 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
                     'quantity' => $params['line_items'][$i]['quantity']
                 ];
 
-                if (!isset($params['line_items'][$i]['recurring']))
+                /** @var \Stripe\Price $price */
+                $price = $this->stripePriceFactory->create()->load($params['line_items'][$i]['price'])->getStripeObject();
+
+                if (empty($price->recurring))
                     $comparisonParams[$i]['price']['recurring'] = "unset";
                 else
                 {
-                    $comparisonParams[$i]['price']['recurring']['interval'] = $params['line_items'][$i]['recurring']['interval'];
-                    $comparisonParams[$i]['price']['recurring']['interval_count'] = $params['line_items'][$i]['recurring']['interval_count'];
+                    $comparisonParams[$i]['price']['recurring']['interval'] = $price->recurring->interval;
+                    $comparisonParams[$i]['price']['recurring']['interval_count'] = $price->recurring->interval_count;
                 }
             }
 
@@ -771,19 +773,27 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         return null;
     }
 
-    protected function hasExpired()
+    public function hasExpired()
     {
+        if (!$this->getCheckoutSessionId() || !$this->stripeCheckoutSession)
+            return false;
+
         $checkoutSession = $this->stripeCheckoutSession->getStripeObject();
 
-        if (empty($checkoutSession))
-        {
-            throw new GenericException("No Stripe Checkout session found.");
-        }
-
-        return ($checkoutSession->status == "expired" || $checkoutSession->status == "complete");
+        return ($checkoutSession && $checkoutSession->status == "expired");
     }
 
-    protected function cancelOrder($orderComment)
+    public function isComplete()
+    {
+        if (!$this->getCheckoutSessionId() || !$this->stripeCheckoutSession)
+            return false;
+
+        $checkoutSession = $this->stripeCheckoutSession->getStripeObject();
+
+        return ($checkoutSession && $checkoutSession->status == "complete");
+    }
+
+    public function cancelOrder($orderComment)
     {
         if (!$this->getOrderIncrementId())
             return;
@@ -800,13 +810,13 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         $this->setOrderIncrementId(null)->save();
     }
 
-    protected function cancelCheckoutSession()
+    public function cancelCheckoutSession()
     {
         $checkoutSession = $this->stripeCheckoutSession->getStripeObject();
 
         if (empty($checkoutSession))
         {
-            throw new GenericException("No Stripe Checkout session found.");
+            return;
         }
 
         try
@@ -856,9 +866,9 @@ class CheckoutSession extends \Magento\Framework\Model\AbstractModel
         return true;
     }
 
-    protected function needsUpdate($params)
+    // Checks if the customer email has changed
+    public function needsUpdate($params)
     {
-        // Check if the customer email has changed
         $checkoutSession = $this->stripeCheckoutSession->getStripeObject();
 
         if (empty($checkoutSession->customer_details->email)

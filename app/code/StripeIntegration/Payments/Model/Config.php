@@ -9,7 +9,7 @@ use StripeIntegration\Payments\Exception\GenericException;
 class Config
 {
     public static $moduleName           = "Magento2";
-    public static $moduleVersion        = "4.0.8";
+    public static $moduleVersion        = "4.1.6";
     public static $minStripePHPVersion  = "13.15.0";
     public static $moduleUrl            = "https://stripe.com/docs/plugins/magento";
     public static $partnerId            = "pp_partner_Fs67gT2M6v3mH7";
@@ -178,6 +178,12 @@ class Config
         {
             return null;
         }
+    }
+
+    public function reInitStripeFromSecretKey($key)
+    {
+        unset($this->isInitialized);
+        return $this->initStripeFromSecretKey($key);
     }
 
     public function initStripeFromSecretKey($key)
@@ -545,26 +551,6 @@ class Config
         return $metadata;
     }
 
-    private function getPaymentLocation($location)
-    {
-        if (stripos($location, 'product') === 0)
-            return "Product Page";
-
-        switch ($location) {
-            case 'cart':
-                return "Shopping Cart Page";
-
-            case 'checkout':
-                return "Checkout Page";
-
-            case 'minicart':
-                return "Mini cart";
-
-            default:
-                return "Unknown";
-        }
-    }
-
     public function getMultishippingMetadata($quote, $orders)
     {
         $orderIncrementIds = [];
@@ -635,14 +621,39 @@ class Config
         return $this->stripeClient;
     }
 
-    public function shippingIncludesTax($store = null)
+    public function isStripeTaxEnabled($storeId = null)
     {
-        return $this->taxConfig->shippingPriceIncludesTax($store);
+        return (bool)$this->configHelper->getConfigData('tax/stripe_tax/enabled', $storeId);
     }
 
-    public function priceIncludesTax($store = null)
+    public function getStripeTaxShippingBehavior($storeId = null)
     {
-        return $this->taxConfig->priceIncludesTax($store);
+        return $this->configHelper->getConfigData('tax/stripe_tax/shipping_tax_behavior', $storeId);
+    }
+
+    public function getStripeTaxPricesAndPromotionsBehavior($storeId = null)
+    {
+        return $this->configHelper->getConfigData('tax/stripe_tax/prices_and_promotions_tax_behavior', $storeId);
+    }
+
+    public function shippingIncludesTax($storeId = null)
+    {
+        if ($this->isStripeTaxEnabled($storeId))
+        {
+            return $this->getStripeTaxShippingBehavior($storeId) == "inclusive";
+        }
+
+        return $this->taxConfig->shippingPriceIncludesTax($storeId);
+    }
+
+    public function priceIncludesTax($storeId = null)
+    {
+        if ($this->isStripeTaxEnabled($storeId))
+        {
+            return $this->getStripeTaxPricesAndPromotionsBehavior($storeId) == "inclusive";
+        }
+
+        return $this->taxConfig->priceIncludesTax($storeId);
     }
 
     public function getSetupFutureUsage($quote)

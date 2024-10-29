@@ -3,7 +3,9 @@
 namespace StripeIntegration\Payments\Observer;
 
 use Magento\Payment\Observer\AbstractDataAssignObserver;
+use Magento\Framework\Event\Observer;
 
+// sales_quote_collect_totals_before
 class QuoteObserver extends AbstractDataAssignObserver
 {
     public $hasSubscriptions = null;
@@ -28,12 +30,14 @@ class QuoteObserver extends AbstractDataAssignObserver
      */
     public function execute(\Magento\Framework\Event\Observer $observer)
     {
+        $this->setTaxCalculationMethod($observer);
+    }
+
+    public function setTaxCalculationMethod($observer)
+    {
         $quote = $observer->getEvent()->getQuote();
 
-        if (empty($quote) || !$this->config->isEnabled() || !$this->config->isSubscriptionsEnabled())
-            return;
-
-        if ($this->config->priceIncludesTax())
+        if (empty($quote) || !$this->config->isSubscriptionsEnabled())
             return;
 
         $this->taxCalculation->method = null;

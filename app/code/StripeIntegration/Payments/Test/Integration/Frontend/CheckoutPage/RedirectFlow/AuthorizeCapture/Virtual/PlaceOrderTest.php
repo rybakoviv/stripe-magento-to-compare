@@ -38,12 +38,8 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $methods = $this->quote->getAvailablePaymentMethods();
         $this->assertGreaterThanOrEqual(6, count($methods)); // It should actually include 7 methods, but sometimes a PM might be down for maintenance
 
-        $this->tests->assertCheckoutSessionsCountEquals(1);
-
         // Place the order
         $order = $this->quote->placeOrder();
-
-        // Ensure that we re-used the cached session from the api
         $this->tests->assertCheckoutSessionsCountEquals(1);
 
         $lastCheckoutSession = $this->tests->getLastCheckoutSession();

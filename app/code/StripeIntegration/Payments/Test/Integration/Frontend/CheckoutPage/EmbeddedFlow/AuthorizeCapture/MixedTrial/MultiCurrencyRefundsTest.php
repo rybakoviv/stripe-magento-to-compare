@@ -50,25 +50,44 @@ class MultiCurrencyRefundsTest extends \PHPUnit\Framework\TestCase
 
         // Order checks
         $this->tests->compare($order->debug(), [
-            "base_grand_total" => 31.66,
-            "grand_total" => 26.90,
-            "base_total_invoiced" => 31.66,
-            "total_invoiced" => 26.90,
-            "base_total_paid" => 31.66,
-            "total_paid" => 26.90,
+            "base_grand_total" => 15.83,
+            "grand_total" => 13.45,
+            "base_total_invoiced" => 15.83,
+            "total_invoiced" => 13.45,
+            "base_total_paid" => 15.83,
+            "total_paid" => 13.45,
             "base_total_due" => 0,
             "total_due" => 0,
-            "total_refunded" => 13.45,
+            "total_refunded" => "unset",
             "total_canceled" => "unset",
             "state" => "processing",
             "status" => "processing"
         ]);
+
+        // Credit memo checks
+        $creditmemoCollection = $order->getCreditmemosCollection();
+        $this->assertEquals(0, $creditmemoCollection->getSize());
+
+        // Invoice checks
+        $invoicesCollection = $order->getInvoiceCollection();
+        $this->assertEquals(1, $invoicesCollection->getSize());
+        $invoice = $invoicesCollection->getFirstItem();
+        $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
 
         // Stripe checks
         $stripe = $this->tests->stripe();
         $customerId = $order->getPayment()->getAdditionalInformation("customer_stripe_id");
         $customer = $stripe->customers->retrieve($customerId);
         $this->assertEquals(1, count($customer->subscriptions->data));
+
+        $charges = $stripe->charges->all(['limit' => 10, 'customer' => $customer->id]);
+        $charge = $charges->data[0];
+        $this->tests->compare($charge, [
+            "amount" => 1345,
+            "amount_captured" => 1345,
+            "amount_refunded" => 0,
+            "currency" => "eur"
+        ]);
 
         // Expire the trial subscription
         $ordersCount = $this->tests->getOrdersCount();
@@ -80,49 +99,34 @@ class MultiCurrencyRefundsTest extends \PHPUnit\Framework\TestCase
         // Check that a new order was created
         $newOrdersCount = $this->tests->getOrdersCount();
         $this->assertEquals($ordersCount + 1, $newOrdersCount);
+        $newOrder = $this->tests->getLastOrder();
 
-        // Invoice checks
-        $invoicesCollection = $order->getInvoiceCollection();
-        $this->assertEquals(1, $invoicesCollection->getSize());
-        $invoice = $invoicesCollection->getFirstItem();
-        $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
-
-        // Credit memo checks
-        $creditmemoCollection = $order->getCreditmemosCollection();
-        $this->assertEquals(1, $creditmemoCollection->getSize());
-
-        // Order checks
-        $this->tests->compare($order->debug(), [
-            "base_grand_total" => 31.66,
-            "grand_total" => 26.90,
-            "base_total_invoiced" => 31.66,
-            "total_invoiced" => 26.90,
-            "base_total_paid" => 31.66,
-            "total_paid" => 26.90,
+        // New order checks
+        $this->tests->compare($newOrder->debug(), [
+            "base_grand_total" => 15.83,
+            "grand_total" => 13.45,
+            "base_total_invoiced" => 15.83,
+            "total_invoiced" => 13.45,
+            "base_total_paid" => 15.83,
+            "total_paid" => 13.45,
             "base_total_due" => 0,
             "total_due" => 0,
-            "total_refunded" => 13.45,
+            "total_refunded" => "unset",
             "total_canceled" => "unset",
             "state" => "processing",
             "status" => "processing"
         ]);
 
-        // Refund the order
+        // Refund the original order
         $this->assertTrue($order->canCreditmemo());
         $this->tests->refundOnline($invoice, ['simple-product' => 1], $baseShipping = 5);
 
         // Refresh the order object
         $order = $this->tests->refreshOrder($order);
 
-        // We have a rounding error because the credit memos do not include the items that were refunded
-        // We basically converted the rounded 13.45 back to a rounded base amount of 15.83, but the original base
-        // amount was 15.8255, calculated from the order items, with tax applied.
-        // v3.2.8 is not affected because it does not use Helper/Creditmemo, it adds the order items instead.
-        $roundingError = 0.01;
-
         $this->tests->compare($order->debug(), [
-            "base_total_refunded" => $order->getBaseGrandTotal() - $roundingError,
-            "total_refunded" => $order->getGrandTotal(),
+            "base_total_refunded" => 15.83,
+            "total_refunded" => 13.45,
             "total_canceled" => "unset",
             "state" => "processing",
             "status" => "processing"
@@ -130,11 +134,10 @@ class MultiCurrencyRefundsTest extends \PHPUnit\Framework\TestCase
 
         // Refund the trial subscription via the 2nd order
         $oldIncrementId = $order->getIncrementId();
-        $order = $this->tests->getLastOrder();
-        $this->assertNotEquals($oldIncrementId, $order->getIncrementId());
-        $this->assertTrue($order->canCreditmemo());
-        $this->assertEquals(0, $order->getCreditmemosCollection()->getSize());
-        $invoice = $order->getInvoiceCollection()->getFirstItem();
+        $this->assertNotEquals($oldIncrementId, $newOrder->getIncrementId());
+        $this->assertTrue($newOrder->canCreditmemo());
+        $this->assertEquals(0, $newOrder->getCreditmemosCollection()->getSize());
+        $invoice = $newOrder->getInvoiceCollection()->getFirstItem();
 
         if ($this->tests->magento("<", "2.4"))
         {
@@ -145,10 +148,10 @@ class MultiCurrencyRefundsTest extends \PHPUnit\Framework\TestCase
         $this->tests->refundOnline($invoice, ['simple-trial-monthly-subscription-product' => 1], $baseShipping = 5);
 
         // Refresh the order object
-        $order = $this->tests->refreshOrder($order);
+        $newOrder = $this->tests->refreshOrder($newOrder);
 
         // Order checks
-        $this->tests->compare($order->debug(), [
+        $this->tests->compare($newOrder->debug(), [
             "base_total_refunded" => 15.83,
             "total_refunded" => 13.45,
             "total_canceled" => "unset",
@@ -156,7 +159,7 @@ class MultiCurrencyRefundsTest extends \PHPUnit\Framework\TestCase
             "status" => "closed"
         ]);
 
-        $this->assertFalse($order->canCreditmemo()); // @todo: inverse rounding error, should be false
+        $this->assertFalse($newOrder->canCreditmemo()); // @todo: inverse rounding error, should be false
 
         // Stripe checks
         $charges = $stripe->charges->all(['limit' => 10, 'customer' => $customer->id]);

@@ -58,7 +58,14 @@ class RefundFromDashboardTest extends \PHPUnit\Framework\TestCase
         $order = $this->tests->refreshOrder($order);
 
         $this->tests->compare($order->getData(), [
-            "total_refunded" => "0.0700",
+            "total_refunded" => "unset",
         ]);
+
+        $histories = $order->getStatusHistories();
+        $latestHistoryComment = array_shift($histories);
+        $comment = $latestHistoryComment->getComment();
+        $status = $latestHistoryComment->getStatus();
+        $this->assertEquals("A refund of $0.07 was issued via Stripe, but the amount is different than the order amount.", $comment);
+        $this->assertEquals("processing", $status);
     }
 }

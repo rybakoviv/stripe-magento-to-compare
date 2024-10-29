@@ -1,9 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StripeIntegration\Payments\Model;
 
 use StripeIntegration\Payments\Exception\SCANeededException;
-use StripeIntegration\Payments\Exception\GenericException;
 
 class PaymentIntent extends \Magento\Framework\Model\AbstractModel
 {
@@ -20,40 +21,34 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
     private $compare;
     private $addressHelper;
     private $cache;
-    private $addressFactory;
+    private $errorHelper;
     private $customer;
     private $subscriptionsHelper;
     private $paymentIntentHelper;
-    private $dataHelper;
     private $helper;
     private $config;
-    private $stripePaymentMethod;
     private $stripePaymentIntent;
     private $paymentIntentCollection;
     private $resourceModel;
     private $checkoutFlow;
-    private $quoteHelper;
     private $orderHelper;
     private $convert;
     private $paymentMethodTypesHelper;
 
     public function __construct(
-        \StripeIntegration\Payments\Helper\Data $dataHelper,
         \StripeIntegration\Payments\Helper\Generic $helper,
         \StripeIntegration\Payments\Helper\Compare $compare,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
         \StripeIntegration\Payments\Helper\Address $addressHelper,
         \StripeIntegration\Payments\Helper\PaymentIntent $paymentIntentHelper,
-        \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
         \StripeIntegration\Payments\Helper\Convert $convert,
         \StripeIntegration\Payments\Helper\PaymentMethodTypes $paymentMethodTypesHelper,
+        \StripeIntegration\Payments\Helper\Error $errorHelper,
         \StripeIntegration\Payments\Model\Config $config,
-        \StripeIntegration\Payments\Model\Stripe\PaymentMethod $stripePaymentMethod,
         \StripeIntegration\Payments\Model\Stripe\PaymentIntent $stripePaymentIntent,
         \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
         \StripeIntegration\Payments\Model\ResourceModel\PaymentIntent\Collection $paymentIntentCollection,
-        \Magento\Customer\Model\AddressFactory $addressFactory,
         \StripeIntegration\Payments\Model\ResourceModel\PaymentIntent $resourceModel,
         \Magento\Framework\Model\Context $context,
         \Magento\Framework\Registry $registry,
@@ -62,7 +57,6 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         array $data = []
         )
     {
-        $this->dataHelper = $dataHelper;
         $this->helper = $helper;
         $this->compare = $compare;
         $this->subscriptionsHelper = $subscriptionsHelper;
@@ -73,13 +67,11 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         $this->config = $config;
         $this->paymentMethodTypesHelper = $paymentMethodTypesHelper;
         $this->customer = $helper->getCustomerModel();
-        $this->addressFactory = $addressFactory;
-        $this->stripePaymentMethod = $stripePaymentMethod;
+        $this->errorHelper = $errorHelper;
         $this->stripePaymentIntent = $stripePaymentIntent;
         $this->checkoutFlow = $checkoutFlow;
         $this->paymentIntentCollection = $paymentIntentCollection;
         $this->resourceModel = $resourceModel;
-        $this->quoteHelper = $quoteHelper;
         $this->orderHelper = $orderHelper;
 
         parent::__construct($context, $registry, $resource, $resourceCollection, $data);
@@ -300,8 +292,6 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
 
         $params['payment_method'] = $paymentMethodId;
 
-        $this->setCustomerFromPaymentMethodId($paymentMethodId);
-
         if (!$this->customer->getStripeId())
         {
             $this->customer->createStripeCustomerIfNotExists();
@@ -328,31 +318,11 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         return $params;
     }
 
-    public function setCustomerFromPaymentMethodId($paymentMethodId, $order = null)
+    public function getParamsFrom(\Magento\Sales\Api\Data\OrderInterface $order, $paymentMethodId = null)
     {
-        $paymentMethod = $this->stripePaymentMethod->fromPaymentMethodId($paymentMethodId)->getStripeObject();
-        if (!empty($paymentMethod->customer))
-        {
-            $customer = $this->helper->getCustomerModelByStripeId($paymentMethod->customer);
-            if (!$customer)
-            {
-
-                $this->customer->createStripeCustomer($order, ["id" => $paymentMethod->customer]);
-            }
-            else
-            {
-                $this->customer = $customer;
-            }
-        }
-    }
-
-    public function getParamsFrom($quote, $order, $paymentMethodId = null)
-    {
-        if (empty($order))
-            throw new GenericException("An order is required for PaymentIntent parameters.");
-
         $amount = $order->getGrandTotal();
         $currency = $order->getOrderCurrencyCode();
+        /** @var \Magento\Sales\Model\Order\Payment $payment */
         $payment = $order->getPayment();
         $savePaymentMethod = (bool)$payment->getAdditionalInformation("save_payment_method");
 
@@ -389,7 +359,6 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         if ($paymentMethodId)
         {
             $params['payment_method'] = $paymentMethodId;
-            $this->setCustomerFromPaymentMethodId($paymentMethodId, $order);
         }
 
         if (!$this->customer->getStripeId())
@@ -403,31 +372,21 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         if ($this->customer->getStripeId())
             $params["customer"] = $this->customer->getStripeId();
 
-        if ($order)
-        {
-            $params["description"] = $this->orderHelper->getOrderDescription($order);
-            $params["metadata"] = $this->config->getMetadata($order);
-        }
-        else
-        {
-            $params["description"] = $this->quoteHelper->getQuoteDescription($quote);
-        }
+        $params["description"] = $this->orderHelper->getOrderDescription($order);
+        $params["metadata"] = $this->config->getMetadata($order);
 
         // Add subscription initial fees to the amount, or remove any trial subscription amounts
-        $subscriptionsTotal = $this->getSubscriptionsAmount($quote, $order);
+        $subscriptionsTotal = $this->getSubscriptionsAmount($order);
         $stripeSubscriptionsTotal = $this->convert->magentoAmountToStripeAmount($subscriptionsTotal, $currency);
         $params['amount'] -= $stripeSubscriptionsTotal;
 
-        $shipping = $this->getShippingAddressFrom($quote, $order);
-        if ($shipping)
-            $params['shipping'] = $shipping;
-        else if (isset($params['shipping']))
-            unset($params['shipping']);
+        $shippingAddress = $this->addressHelper->getShippingAddressFromOrder($order);
+        if ($shippingAddress)
+        {
+            $params['shipping'] = $shippingAddress;
+        }
 
-        if ($order)
-            $customerEmail = $order->getCustomerEmail();
-        else
-            $customerEmail = $quote->getCustomerEmail();
+        $customerEmail = $order->getCustomerEmail();
 
         if ($customerEmail && $this->config->isReceiptEmailsEnabled())
             $params["receipt_email"] = $customerEmail;
@@ -442,24 +401,29 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         return $params;
     }
 
-    protected function getSubscriptionsAmount($quote, $order = null)
+    // Returns the subscription total that is chargeable immediately
+    protected function getSubscriptionsAmount(\Magento\Sales\Api\Data\OrderInterface $order)
     {
-        if ($order)
-        {
-            $subscription = $this->subscriptionsHelper->getSubscriptionFromOrder($order);
-        }
-        else
-        {
-            $subscription = $this->subscriptionsHelper->getSubscriptionFromQuote($quote);
-        }
+        if (!$this->config->isSubscriptionsEnabled())
+            return 0;
+
+        $subscription = $this->subscriptionsHelper->getSubscriptionFromOrder($order);
 
         $subscriptionsTotal = 0;
         if (!empty($subscription['profile']))
         {
             $subscriptionsTotal += $this->subscriptionsHelper->getSubscriptionTotalFromProfile($subscription['profile']);
+            $subscriptionsTotal -= $subscription['profile']['deducted_order_amount']; // Exclude future subscription amounts
+            $subscriptionsTotal = round($subscriptionsTotal, 4); // Removes floating point errors
         }
 
-        return max(0, $subscriptionsTotal);
+        if ($subscriptionsTotal < 0)
+        {
+            $this->helper->logError("Cannot set up subscription because the subscription total is negative: " . $subscriptionsTotal);
+            $this->helper->throwError(__("The subscription could not be set up. Please contact support."));
+        }
+
+        return $subscriptionsTotal;
     }
 
     public function getClientSecret($paymentIntent = null)
@@ -621,33 +585,6 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
         return $this->compare->isDifferent($paymentIntent, $expectedValues);
     }
 
-    public function getShippingAddressFrom($quote, $order = null)
-    {
-        if ($order)
-            $obj = $order;
-        else if ($quote)
-            $obj = $quote;
-        else
-            throw new GenericException("No quote or order specified");
-
-        if (!$obj || $obj->getIsVirtual())
-            return null;
-
-        $address = $obj->getShippingAddress();
-
-        if (empty($address))
-            return null;
-
-        // This is the case where we only have the quote
-        if (empty($address->getFirstname()))
-            $address = $this->addressFactory->create()->load($address->getAddressId());
-
-        if (empty($address->getFirstname()))
-            return null;
-
-        return $this->addressHelper->getStripeShippingAddressFromMagentoAddress($address);
-    }
-
     public function requiresAction($paymentIntent = null)
     {
         if (empty($paymentIntent))
@@ -672,7 +609,7 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
             }
             catch (\Stripe\Exception\InvalidRequestException $e)
             {
-                if (!$this->dataHelper->isMOTOError($e->getError()))
+                if (!$this->errorHelper->isMOTOError($e->getError()))
                     throw $e;
 
                 $this->cache->save($value = "1", $key = "no_moto_gate", ["stripe_payments"], $lifetime = 6 * 60 * 60);
@@ -728,6 +665,12 @@ class PaymentIntent extends \Magento\Framework\Model\AbstractModel
                 $payment->setIsTransactionClosed(false);
             else
                 $payment->setIsTransactionClosed(true);
+        }
+        else if ($payment->getOrder()->getGrandTotal() == 0)
+        {
+            // Case with trial subscriptions and start dates
+            $payment->setIsTransactionPending(false);
+            $payment->setAdditionalInformation("is_transaction_pending", false); // this is persisted
         }
         else
         {

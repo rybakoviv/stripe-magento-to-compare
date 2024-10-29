@@ -5,6 +5,8 @@ namespace StripeIntegration\Payments\Controller\Customer;
 use Magento\Framework\App\ActionInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Controller\ResultFactory;
+use Magento\Framework\Exception\TemporaryState\CouldNotSaveException;
+use StripeIntegration\Payments\Exception\GenericException;
 
 class Subscriptions implements ActionInterface
 {
@@ -16,7 +18,6 @@ class Subscriptions implements ActionInterface
     private $stripeCustomer;
     private $subscriptionFactory;
     private $subscriptionProductFactory;
-    private $config;
     private $stripeSubscriptionScheduleFactory;
     private $stripeSubscriptionFactory;
     private $resultFactory;
@@ -24,6 +25,7 @@ class Subscriptions implements ActionInterface
     private $request;
     private $quoteHelper;
     private $orderHelper;
+    private $productHelper;
 
     public function __construct(
         \Magento\Framework\View\Result\PageFactory $resultPageFactory,
@@ -33,9 +35,9 @@ class Subscriptions implements ActionInterface
         \StripeIntegration\Payments\Helper\Order $orderHelper,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
         \StripeIntegration\Payments\Helper\Data $dataHelper,
+        \StripeIntegration\Payments\Helper\Product $productHelper,
         \StripeIntegration\Payments\Model\SubscriptionFactory $subscriptionFactory,
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
-        \StripeIntegration\Payments\Model\Config $config,
         \StripeIntegration\Payments\Model\Stripe\SubscriptionScheduleFactory $stripeSubscriptionScheduleFactory,
         \StripeIntegration\Payments\Model\Stripe\SubscriptionFactory $stripeSubscriptionFactory,
         \Magento\Sales\Model\Order $order,
@@ -49,11 +51,11 @@ class Subscriptions implements ActionInterface
         $this->orderHelper = $orderHelper;
         $this->subscriptionsHelper = $subscriptionsHelper;
         $this->dataHelper = $dataHelper;
+        $this->productHelper = $productHelper;
         $this->order = $order;
         $this->stripeCustomer = $helper->getCustomerModel();
         $this->subscriptionFactory = $subscriptionFactory;
         $this->subscriptionProductFactory = $subscriptionProductFactory;
-        $this->config = $config;
         $this->stripeSubscriptionScheduleFactory = $stripeSubscriptionScheduleFactory;
         $this->stripeSubscriptionFactory = $stripeSubscriptionFactory;
         $this->resultFactory = $resultFactory;
@@ -117,15 +119,30 @@ class Subscriptions implements ActionInterface
 
     protected function cancelSubscription($subscriptionId)
     {
-        if (!$this->stripeCustomer->getStripeId())
+        try
+        {
+            if (!$this->stripeCustomer->getStripeId())
+            {
+                $this->helper->addError(__("Sorry, the subscription could not be canceled. Please contact us for more help."));
+                $this->helper->logError("Could not load customer account for subscription with ID $subscriptionId!");
+            }
+            else
+            {
+                $subscriptionModel = $this->subscriptionFactory->create()->fromSubscriptionId($subscriptionId);
+                $this->verifySubscription($subscriptionModel->getStripeObject());
+                $subscriptionModel->cancel();
+                $this->helper->addSuccess(__("The subscription has been canceled successfully!"));
+            }
+        }
+        catch (LocalizedException $e)
+        {
+            $this->helper->addError($e->getMessage());
+            $this->helper->logError("Could not cancel subscription with ID $subscriptionId: " . $e->getMessage());
+        }
+        catch (\Exception $e)
         {
             $this->helper->addError(__("Sorry, the subscription could not be canceled. Please contact us for more help."));
-            $this->helper->logError("Could not load customer account for subscription with ID $subscriptionId!");
-        }
-        else
-        {
-            $this->subscriptionFactory->create()->cancel($subscriptionId);
-            $this->helper->addSuccess(__("The subscription has been canceled successfully!"));
+            $this->helper->logError("Could not cancel subscription with ID $subscriptionId: " . $e->getMessage(), $e->getTraceAsString());
         }
 
         return $this->redirect('stripe/customer/subscriptions');
@@ -133,6 +150,9 @@ class Subscriptions implements ActionInterface
 
     protected function changeCard($subscriptionId, $cardId)
     {
+        $subscription = $this->subscriptionFactory->create()->fromSubscriptionId($subscriptionId)->getStripeObject();
+        $this->verifySubscription($subscription);
+
         if (!$this->stripeCustomer->getStripeId())
         {
             $this->helper->addError("Sorry, the subscription could not be updated. Please contact us for more help.");
@@ -145,6 +165,14 @@ class Subscriptions implements ActionInterface
         }
 
         return $this->redirect('stripe/customer/subscriptions');
+    }
+
+    private function verifySubscription($subscription)
+    {
+        if (!$subscription || !$subscription->customer || $subscription->customer != $this->stripeCustomer->getStripeId())
+        {
+            throw new CouldNotSaveException(__("An invalid subscription has been specified."));
+        }
     }
 
     protected function editSubscription($subscriptionId)
@@ -160,6 +188,7 @@ class Subscriptions implements ActionInterface
 
             /** @var \StripeIntegration\Payments\Model\Stripe\Subscription $stripeSubscriptionModel */
             $stripeSubscriptionModel = $this->stripeSubscriptionFactory->create()->fromSubscriptionId($subscriptionId);
+            $this->verifySubscription($stripeSubscriptionModel->getStripeObject());
             $order = $stripeSubscriptionModel->getOrder();
 
             if (!$order || !$order->getId())
@@ -202,7 +231,8 @@ class Subscriptions implements ActionInterface
             if (!$subscriptionId)
                 throw new LocalizedException(__("Invalid subscription ID."));
 
-            $subscription = $this->config->getStripeClient()->subscriptions->retrieve($subscriptionId, []);
+            $subscription = $this->stripeSubscriptionFactory->create()->fromSubscriptionId($subscriptionId)->getStripeObject();
+            $this->verifySubscription($subscription);
             $orderIncrementId = $this->subscriptionsHelper->getSubscriptionOrderID($subscription);
             if (!$orderIncrementId)
                 throw new LocalizedException(__("This subscription is not associated with an order."));
@@ -225,7 +255,7 @@ class Subscriptions implements ActionInterface
                 $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($item);
 
                 if ($subscriptionProductModel->isSubscriptionProduct() &&
-                    $subscriptionProductModel->getIsSaleable() &&
+                    $subscriptionProductModel->getIsSalable() &&
                     in_array($subscriptionProductModel->getProductId(), $productIds)
                     )
                 {
@@ -234,10 +264,17 @@ class Subscriptions implements ActionInterface
                     if ($item->getParentItem() && $item->getParentItem()->getProductType() == "configurable")
                     {
                         $item = $item->getParentItem();
-                        $product = $this->helper->loadProductById($item->getProductId());
+                        try
+                        {
+                            $product = $this->productHelper->getProduct($item->getProductId());
 
-                        if (!$product || !$product->isSaleable())
+                            if (!$product->getIsSalable())
+                                continue;
+                        }
+                        catch (\Exception $e)
+                        {
                             continue;
+                        }
                     }
 
                     $request = $this->dataHelper->getBuyRequest($item);
@@ -345,26 +382,36 @@ class Subscriptions implements ActionInterface
 
     protected function reactivateSubscription($subscriptionId)
     {
-        try {
-            if (!$this->stripeCustomer->getStripeId())
-                throw new LocalizedException(__("Could not load customer account."));
+        $subscriptionModel = $this->subscriptionFactory->create()->fromSubscriptionId($subscriptionId);
+        $this->verifySubscription($subscriptionModel->getStripeObject());
 
-            if (!$subscriptionId)
-                throw new LocalizedException(__("Invalid subscription ID."));
-
-            $subscriptionModel = $this->subscriptionFactory->create()->fromSubscriptionId($subscriptionId);
-            $redirectPath = $subscriptionModel->reactivate();
-            return $this->redirect($redirectPath);
-        }
-        catch (LocalizedException $e)
+        if (!$this->stripeCustomer->getStripeId())
         {
-            $this->helper->addError($e->getMessage());
-            $this->helper->logError("Could not reactivate the subscription with ID $subscriptionId: " . $e->getMessage());
+            $this->helper->addError(__("Could not load customer account."));
         }
-        catch (\Exception $e) {
-            $this->helper->addError(__("Sorry, unable to reactivate the subscription"));
-            $this->helper->logError("Unable to reactivate the subscription $subscriptionId: " . $e->getMessage(), $e->getTraceAsString());
+        else if (!$subscriptionId)
+        {
+            $this->helper->addError(__("Invalid subscription ID."));
         }
+        else
+        {
+            try {
+
+                $subscriptionModel->reactivate();
+                $this->helper->addSuccess(__("The subscription has been reactivated."));
+            }
+            catch (GenericException | LocalizedException $e)
+            {
+                $this->helper->addError($e->getMessage());
+                $this->helper->logError("Could not reactivate the subscription with ID $subscriptionId: " . $e->getMessage());
+            }
+            catch (\Exception $e) {
+                $this->helper->addError(__("Sorry, there was a problem reactivating the subscription"));
+                $this->helper->logError("Unable to reactivate the subscription $subscriptionId: " . $e->getMessage(), $e->getTraceAsString());
+            }
+        }
+
+        return $this->redirect('stripe/customer/subscriptions');
     }
 
     public function redirect($url, array $params = [])

@@ -26,4 +26,14 @@ class Collection extends \Magento\Framework\Model\ResourceModel\Db\Collection\Ab
 
         $collection->walk('delete');
     }
+
+    public function getByQuoteId($quoteId)
+    {
+        $this->clear()->getSelect()->reset(\Magento\Framework\DB\Select::WHERE);
+
+        $collection = $this->addFieldToSelect('*')
+                    ->addFieldToFilter('quote_id', $quoteId);
+
+        return $collection->getFirstItem();
+    }
 }

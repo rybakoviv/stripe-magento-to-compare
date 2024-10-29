@@ -122,10 +122,11 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
         $this->assertEquals($paymentIntentId, $invoice->getTransactionId());
         $this->tests->compare($order->getData(), [
+            "grand_total" => 15.83,
             "total_paid" => $order->getGrandTotal(),
             "base_total_paid" => $order->getBaseGrandTotal(),
-            "total_refunded" => 15.83,
-            "base_total_refunded" => 15.83
+            "total_refunded" => "unset",
+            "base_total_refunded" => "unset"
         ]);
 
         // Check that the transaction IDs have been associated with the order

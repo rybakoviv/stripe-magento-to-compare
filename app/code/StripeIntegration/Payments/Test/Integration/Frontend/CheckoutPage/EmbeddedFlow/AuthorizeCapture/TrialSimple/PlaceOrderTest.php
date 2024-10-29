@@ -38,6 +38,11 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
 
         $eventHelper = $this->tests->event();
         $subscriptionId = $order->getPayment()->getAdditionalInformation("subscription_id");
+        $this->assertNotEmpty($subscriptionId);
+
+        $subscription = $this->tests->stripe()->subscriptions->retrieve($subscriptionId);
+        $this->assertEquals("trialing", $subscription->status);
+        $this->assertEquals(1583, $subscription->plan->amount);
         $eventHelper->triggerSubscriptionEventsById($subscriptionId);
 
         // Create the payment info block for $order
@@ -85,16 +90,16 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
 
         // Assert order status, amount due
         $this->tests->compare($order->getData(), [
-            "total_paid" => 15.83,
+            "total_paid" => 0,
             "total_due" => 0,
-            "total_refunded" => 15.83,
-            "total_canceled" => 0,
+            "total_refunded" => "unset",
+            "total_canceled" => "unset",
             "state" => "processing",
             "status" => "processing"
         ]);
 
         $this->assertTrue($order->canShip());
-        $this->assertFalse($order->canCreditmemo());
+        $this->assertTrue($order->canCreditmemo());
 
         // Activate the subscription
         $ordersCount = $this->tests->getOrdersCount();
@@ -131,7 +136,7 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertNotEquals($order->getIncrementId(), $newOrder->getIncrementId());
         $this->assertEquals("processing", $newOrder->getState());
         $this->assertEquals("processing", $newOrder->getStatus());
-        $this->assertEquals($order->getGrandTotal(), $newOrder->getGrandTotal());
+        $this->assertEquals(15.83, $newOrder->getGrandTotal());
         $this->assertEquals(0, $newOrder->getTotalDue());
         $this->assertEquals(1, $newOrder->getInvoiceCollection()->getSize());
         $this->assertStringContainsString("pi_", $newOrder->getInvoiceCollection()->getFirstItem()->getTransactionId());

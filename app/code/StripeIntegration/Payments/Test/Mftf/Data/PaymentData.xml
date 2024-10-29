@@ -7,7 +7,8 @@
         <data key="declinedCard">4000000000000002</data>
         <data key="insufficientFundsCard">4000000000009995</data>
         <data key="elevatedRiskCard">4000000000009235</data>
-        <data key="authenticationRequiredCard">4000000000003220</data>
+        <data key="authenticationRequiredCard1">4000000000003220</data>
+        <data key="authenticationRequiredCard2">4000002760003184</data>
         <data key="installmentsCard">4000004840000008</data>
         <data key="expDate">1233</data>
         <data key="cvc">123</data>

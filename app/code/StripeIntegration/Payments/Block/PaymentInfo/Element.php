@@ -16,8 +16,6 @@ class Element extends \StripeIntegration\Payments\Block\PaymentInfo\Checkout
     private $tokenHelper;
     private $orderHelper;
     private $paymentMethod;
-    private $request;
-    private $areaCodeHelper;
 
     /**
      * @var StripeHelperData
@@ -41,16 +39,14 @@ class Element extends \StripeIntegration\Payments\Block\PaymentInfo\Checkout
         StripeHelperData $stripeHelperData,
         array $data = []
     ) {
-        parent::__construct($context, $config, $helper, $paymentMethodHelper, $subscriptions, $api, $tokenHelper, $paymentsConfig, $stripePaymentMethodFactory, $data);
+        parent::__construct($context, $config, $request, $areaCodeHelper, $helper, $paymentMethodHelper, $subscriptions, $api, $tokenHelper, $paymentsConfig, $stripePaymentMethodFactory, $data);
 
-        $this->request = $request;
         $this->stripeHelperData = $stripeHelperData;
         $this->stripePaymentIntent = $stripePaymentIntent;
         $this->helper = $helper;
         $this->orderHelper = $orderHelper;
         $this->paymentsConfig = $paymentsConfig;
         $this->tokenHelper = $tokenHelper;
-        $this->areaCodeHelper = $areaCodeHelper;
         $this->stripePaymentMethodFactory = $stripePaymentMethodFactory;
     }
 
@@ -68,19 +64,6 @@ class Element extends \StripeIntegration\Payments\Block\PaymentInfo\Checkout
             return 'paymentInfo/subscription_update.phtml';
 
         return 'paymentInfo/element.phtml';
-    }
-
-    private function isAllowedAction()
-    {
-        if (!$this->areaCodeHelper->isAdmin())
-            return true;
-
-        $allowedAdminActions = ["view", "new", "email"];
-        $action = $this->request->getActionName();
-        if (in_array($action, $allowedAdminActions))
-            return true;
-
-        return false;
     }
 
     private function getPaymentMethodToken()
@@ -339,6 +322,10 @@ class Element extends \StripeIntegration\Payments\Block\PaymentInfo\Checkout
     {
         if (!$this->getPreviousSubscriptionAmount())
             return null;
+
+        $info = $this->getInfo();
+        if ($info && $info->getAdditionalInformation("new_subscription_amount"))
+            return $info->getAdditionalInformation("new_subscription_amount");
 
         return parent::getFormattedSubscriptionAmount();
     }

@@ -12,12 +12,14 @@ class SubscriptionsTest extends \PHPUnit\Framework\TestCase
     private $objectManager;
     private $quote;
     private $tests;
+    private $subscriptionProductFactory;
 
     public function setUp(): void
     {
         $this->objectManager = \Magento\TestFramework\ObjectManager::getInstance();
         $this->quote = new \StripeIntegration\Payments\Test\Integration\Helper\Quote();
         $this->tests = new \StripeIntegration\Payments\Test\Integration\Helper\Tests($this);
+        $this->subscriptionProductFactory = $this->objectManager->get(\StripeIntegration\Payments\Model\SubscriptionProductFactory::class);
     }
 
     /**
@@ -39,14 +41,12 @@ class SubscriptionsTest extends \PHPUnit\Framework\TestCase
 
         foreach ($quote->getAllItems() as $quoteItem)
         {
-            $this->assertNotEmpty($quoteItem->getProduct()->getId());
-            $product = $this->tests->helper()->loadProductById($quoteItem->getProduct()->getId());
-
-            $subscriptionOption = $this->tests->loadSubscriptionOptions($product->getId());
-            if (!$subscriptionOption->getSubEnabled())
+            if ($quoteItem->getProductType() == "configurable")
                 continue;
 
-            $profile = $subscriptionsHelper->getSubscriptionDetails($product, $quote, $quoteItem);
+            $this->assertNotEmpty($quoteItem->getProduct()->getId());
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($quoteItem);
+            $profile = $subscriptionsHelper->getSubscriptionDetails($subscriptionProductModel, $quote, $quoteItem);
 
             $this->tests->compare($profile, [
                 "name" => "Configurable Subscription",

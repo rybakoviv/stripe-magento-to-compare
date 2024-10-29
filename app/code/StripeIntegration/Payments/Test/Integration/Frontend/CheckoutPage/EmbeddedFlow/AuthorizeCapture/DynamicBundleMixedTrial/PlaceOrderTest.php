@@ -56,6 +56,7 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
 
         // Place the order
         $order = $this->quote->placeOrder();
+        $this->assertEquals(0, $order->getGrandTotal());
         $paymentIntent = $this->tests->confirmSubscription($order);
 
         // Refresh the order object
@@ -78,8 +79,8 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertCount(1, $customer->subscriptions->data);
         $subscription = $customer->subscriptions->data[0];
         $this->assertEquals("trialing", $subscription->status);
-        $trialSubscriptionTotal = $order->getGrandTotal();
-        $expectedChargeAmount = $order->getGrandTotal() - $trialSubscriptionTotal;
+        $trialSubscriptionTotal = 53.30;
+        $expectedChargeAmount = $order->getGrandTotal();
         $expectedChargeAmountStripe = $this->tests->helper()->convertMagentoAmountToStripeAmount($expectedChargeAmount, $currency);
         $trialSubscriptionTotalStripe = $this->tests->helper()->convertMagentoAmountToStripeAmount($trialSubscriptionTotal, $currency);
         $this->assertEquals($trialSubscriptionTotalStripe, $subscription->plan->amount);
@@ -99,16 +100,14 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
             "status" => "processing",
             "total_due" => 0,
             "total_paid" => $order->getGrandTotal(),
-            "total_refunded" => $trialSubscriptionTotal
+            "total_refunded" => 0
         ]);
         $this->assertEquals(1, $order->getInvoiceCollection()->getSize());
         $invoice = $order->getInvoiceCollection()->getFirstItem();
         $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
 
         // Credit memos check
-        $this->assertEquals(1, $order->getCreditmemosCollection()->getSize());
-        $creditmemo = $order->getCreditmemosCollection()->getFirstItem();
-        $this->assertEquals($trialSubscriptionTotal, $creditmemo->getGrandTotal());
+        $this->assertEquals(0, $order->getCreditmemosCollection()->getSize());
 
         // End the trial
         $this->tests->endTrialSubscription($subscriptionId);

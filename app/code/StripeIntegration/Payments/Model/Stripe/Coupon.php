@@ -27,7 +27,7 @@ class Coupon
     {
         $currency = $profile['currency'];
         $amount = $profile['discount_amount_magento'];
-        $data = $this->getCouponParams($amount, $currency, $profile['expiring_coupon']['rule_id'], true);
+        $data = $this->getCouponParams($amount, $currency, $profile);
 
         if (!$data)
             return $this;
@@ -80,7 +80,7 @@ class Coupon
         return $this;
     }
 
-    public function getCouponExpirationParams($ruleId)
+    private function getCouponExpirationParams($ruleId, $hasTrial)
     {
         $defaults = ['duration' => 'forever'];
 
@@ -98,29 +98,36 @@ class Coupon
                 'duration_in_months' => $months
             ];
         }
+        else if ($duration == "once" && $hasTrial)
+        {
+            return [
+                'duration' => 'repeating',
+                'duration_in_months' => 1
+            ];
+        }
 
         return ['duration' => $duration];
     }
 
-    private function getCouponParams($amount, $currency, $ruleId, $hasSubscriptions)
+    private function getCouponParams($amount, $currency, $profile)
     {
-        if (empty($amount) || empty($ruleId))
+        if (empty($amount) || empty($profile['expiring_coupon']['rule_id']))
             return null;
 
+        $ruleId = $profile['expiring_coupon']['rule_id'];
         $this->rule = $rule = $this->helper->loadRuleByRuleId($ruleId);
         $action = $rule->getSimpleAction();
         if (empty($action))
             return null;
 
-        if (!$hasSubscriptions)
-            $action = "by_fixed";
-
+        $action = "by_fixed";
         $discountType = "amount_off";
         $stripeAmount = $this->helper->convertMagentoAmountToStripeAmount($amount, $currency);
         $couponId = ((string)$stripeAmount) . strtoupper($currency);
         $name = $this->helper->addCurrencySymbol($amount, $currency) . " Discount";
 
-        $expirationParams = $this->getCouponExpirationParams($ruleId);
+        $hasTrial = $profile['trial_end'] || $profile['trial_days'];
+        $expirationParams = $this->getCouponExpirationParams($ruleId, $hasTrial);
 
         switch ($expirationParams['duration'])
         {

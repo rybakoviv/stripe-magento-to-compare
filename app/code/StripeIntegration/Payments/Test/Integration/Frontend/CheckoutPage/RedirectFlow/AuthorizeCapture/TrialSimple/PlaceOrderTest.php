@@ -60,7 +60,7 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->tests->compare($subscriptions->data[0], [
             "status" => "trialing",
             "plan" => [
-                "amount" => $order->getGrandTotal() * 100
+                "amount" => 1583
             ],
             "metadata" => [
                 "Order #" => $orderIncrementId
@@ -77,7 +77,7 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         // Refresh the order
         $order = $this->tests->refreshOrder($order);
 
-        // Check if Radar risk value is been set to the order
+        // There should be no charge for trial subscriptions
         $this->assertIsNotNumeric($order->getStripeRadarRiskScore());
         $this->assertEquals('NA', $order->getStripeRadarRiskLevel());
 
@@ -86,9 +86,9 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals('', $paymentMethod->getPaymentMethodType());
 
         $this->tests->compare($order->getData(), [
-            "grand_total" => $order->getGrandTotal(),
-            "total_paid" => $order->getGrandTotal(),
-            "total_refunded" => $order->getGrandTotal(),
+            "grand_total" => 0,
+            "total_paid" => 0,
+            "total_refunded" => "unset",
             "state" => "processing",
             "status" => "processing"
         ]);
@@ -99,14 +99,13 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         // Ensure that a new order was created
         $newOrdersCount = $this->tests->getOrdersCount();
         $this->assertEquals($ordersCount + 1, $newOrdersCount);
+        $newOrder = $this->tests->getLastOrder();
+        $this->assertNotEquals($order->getId(), $newOrder->getId());
 
-        // Refresh the order
-        $order = $this->tests->refreshOrder($order);
-
-        $this->tests->compare($order->getData(), [
-            "grand_total" => $order->getGrandTotal(),
-            "total_paid" => $order->getGrandTotal(),
-            "total_refunded" => $order->getGrandTotal(),
+        $this->tests->compare($newOrder->getData(), [
+            "grand_total" => 15.83,
+            "total_paid" => 15.83,
+            "total_refunded" => "unset",
             "state" => "processing",
             "status" => "processing"
         ]);

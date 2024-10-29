@@ -19,11 +19,11 @@
         <!--<waitForElement selector="{{StorefrontCheckoutThreeDSecureSection.fullScreenIframe}}" time="10" stepKey="waitForFullScreenIframe"/>
         <switchToIFrame selector="{{StorefrontCheckoutThreeDSecureSection.fullScreenIframe}}" stepKey="switchToFullScreenIframe"/>-->
 
-        <waitForElementVisible selector="{{ButtonToClick}}" time="30" stepKey="waitForButton"/>
-        <waitForElementClickable selector="{{ButtonToClick}}" time="30" stepKey="waitForButtonClickable"/>
+        <waitForElementVisible selector="{{ButtonToClick}}" time="60" stepKey="waitForButton"/>
+        <waitForElementClickable selector="{{ButtonToClick}}" time="60" stepKey="waitForButtonClickable"/>
         <wait time="1" stepKey="waitForUIToRender"/>
         <click selector="{{ButtonToClick}}" stepKey="clickButton"/>
-        <waitForElementNotVisible selector="{{ButtonToClick}}" time="30" stepKey="waitForButtonNotVisible"/>
+        <waitForElementNotVisible selector="{{ButtonToClick}}" time="60" stepKey="waitForButtonNotVisible"/>
 
         <waitForElementNotVisible selector="{{StorefrontCheckoutThreeDSecureSection.fullScreenIframe}}" stepKey="waitForfullScreenIframeNotVisible"/>
         <switchToIFrame stepKey="switchOutOfFullScreenIframe"/>

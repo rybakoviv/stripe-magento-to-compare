@@ -37,24 +37,23 @@ class OrderCommand
         $order
     ) {
         /** @var \Magento\Sales\Model\Order\Payment $payment */
-        if ($payment->getIsTransactionPending())
+        if ($payment->getIsTransactionPending() || $payment->getIsCustomerRedirected())
         {
+            $state = Order::STATE_PENDING_PAYMENT;
+            $status = $this->statusResolver->getOrderStatusByState($order, $state);
+            $order->setState($state);
+            $order->setStatus($status);
+
             if ($payment->getMethod() == "stripe_payments_bank_transfers")
             {
-                $state = Order::STATE_PENDING_PAYMENT;
-                $status = $this->statusResolver->getOrderStatusByState($order, $state);
                 $message = __("The order is pending a bank transfer of %1 from the customer.");
-
-                $order->setState($state);
-                $order->setStatus($status);
                 return __($message, $order->getBaseCurrency()->formatTxt($amount));
             }
 
-            if ($payment->getMethod() == 'stripe_payments_checkout') {
-                $state = Order::STATE_PENDING_PAYMENT;
-                $status = $this->statusResolver->getOrderStatusByState($order, $state);
-                $order->setState($state);
-                $order->setStatus($status);
+            if ($payment->getIsCustomerRedirected())
+            {
+                $message = __("The customer has been redirected for authentication.");
+                return __($message);
             }
         }
 

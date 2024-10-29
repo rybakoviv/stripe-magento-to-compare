@@ -40,12 +40,8 @@ class ExpiredAuthorizationsTest extends \PHPUnit\Framework\TestCase
             ->setBillingAddress("Berlin")
             ->setPaymentMethod("StripeCheckout");
 
-        $this->tests->assertCheckoutSessionsCountEquals(1);
-
         // Place the order
         $order = $this->quote->placeOrder();
-
-        // Ensure that we re-used the cached session from the api
         $this->tests->assertCheckoutSessionsCountEquals(1);
 
         $lastCheckoutSession = $this->tests->getLastCheckoutSession();
@@ -88,14 +84,8 @@ class ExpiredAuthorizationsTest extends \PHPUnit\Framework\TestCase
             ->setBillingAddress("Berlin")
             ->setPaymentMethod("StripeCheckout");
 
-        $methods = $this->quote->getAvailablePaymentMethods();
-
-        $this->tests->assertCheckoutSessionsCountEquals(1);
-
         // Place the order
         $order = $this->quote->placeOrder();
-
-        // Ensure that we re-used the cached session from the api
         $this->tests->assertCheckoutSessionsCountEquals(1);
 
         $lastCheckoutSession = $this->tests->getLastCheckoutSession();

@@ -9,17 +9,19 @@ namespace StripeIntegration\Payments\Test\Integration\Frontend\CheckoutPage\Embe
  */
 class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
 {
-    private $helper;
     private $objectManager;
     private $quote;
     private $subscriptions;
+    private $subscriptionProductFactory;
+    private $checkoutFlow;
 
     public function setUp(): void
     {
         $this->objectManager = \Magento\TestFramework\ObjectManager::getInstance();
-        $this->helper = $this->objectManager->get(\StripeIntegration\Payments\Helper\Generic::class);
         $this->subscriptions = $this->objectManager->get(\StripeIntegration\Payments\Helper\Subscriptions::class);
         $this->quote = new \StripeIntegration\Payments\Test\Integration\Helper\Quote();
+        $this->subscriptionProductFactory = $this->objectManager->get(\StripeIntegration\Payments\Model\SubscriptionProductFactory::class);
+        $this->checkoutFlow = $this->objectManager->get(\StripeIntegration\Payments\Model\Checkout\Flow::class);
     }
 
     /**
@@ -48,8 +50,8 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
 
         foreach ($quote->getAllItems() as $quoteItem)
         {
-            $product = $this->helper->loadProductById($quoteItem->getProductId());
-            $profile = $this->subscriptions->getSubscriptionDetails($product, $quote, $quoteItem);
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromQuoteItem($quoteItem);
+            $profile = $this->subscriptions->getSubscriptionDetails($subscriptionProductModel, $quote, $quoteItem);
             $this->assertEquals("Simple Trial Monthly Subscription", $profile["name"]);
             $this->assertEquals(1, $profile["qty"]);
             $this->assertEquals("month", $profile["interval"]);
@@ -64,6 +66,7 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
             $this->assertEquals(500, $profile["shipping_stripe"]);
             $this->assertEquals(8.25, $profile["tax_percent"]);
             $this->assertEquals(0.76, $profile["tax_amount_item"]);
+            $this->assertEquals(0.38, $profile["tax_amount_shipping"]);
             $this->assertEquals(0, $profile["tax_amount_initial_fee"]);
             $this->assertEmpty($profile["trial_end"]);
             $this->assertEquals(14, $profile["trial_days"]);
@@ -72,12 +75,11 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
 
         $order = $this->quote->placeOrder();
 
-        $this->assertEquals($order->getShippingTaxAmount(), $profile['tax_amount_shipping']);
-
+        $this->checkoutFlow->isNewOrderBeingPlaced = true;
         foreach ($order->getAllItems() as $orderItem)
         {
-            $product = $this->helper->loadProductById($orderItem->getProductId());
-            $profile = $this->subscriptions->getSubscriptionDetails($product, $order, $orderItem);
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($orderItem);
+            $profile = $this->subscriptions->getSubscriptionDetails($subscriptionProductModel, $order, $orderItem);
             $this->assertEquals("Simple Trial Monthly Subscription", $profile["name"]);
             $this->assertEquals(1, $profile["qty"]);
             $this->assertEquals("month", $profile["interval"]);
@@ -92,7 +94,7 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
             $this->assertEquals(500, $profile["shipping_stripe"]);
             $this->assertEquals(8.25, $profile["tax_percent"]);
             $this->assertEquals(0.76, $profile["tax_amount_item"]);
-            $this->assertEquals($order->getShippingTaxAmount(), $profile["tax_amount_shipping"]);
+            $this->assertEquals(0.38, $profile["tax_amount_shipping"]);
             $this->assertEquals(0, $profile["tax_amount_initial_fee"]);
             $this->assertEmpty($profile["trial_end"]);
             $this->assertEquals(14, $profile["trial_days"]);
@@ -104,16 +106,16 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
         $this->assertNotEmpty($uiConfig["payment"]["stripe_payments"]["trialingSubscriptions"]);
         $trialSubscriptionsConfig = $uiConfig["payment"]["stripe_payments"]["trialingSubscriptions"];
 
-        $this->assertEquals($order->getSubtotalInclTax(), $trialSubscriptionsConfig["subscriptions_total"], "Subtotal");
-        $this->assertEquals($order->getBaseSubtotalInclTax(), $trialSubscriptionsConfig["base_subscriptions_total"], "Base Subtotal");
+        $this->assertEquals(10, $trialSubscriptionsConfig["subscriptions_total"], "Subtotal");
+        $this->assertEquals(10, $trialSubscriptionsConfig["base_subscriptions_total"], "Base Subtotal");
 
-        $this->assertEquals($order->getShippingInclTax(), $trialSubscriptionsConfig["shipping_total"], "Shipping");
-        $this->assertEquals($order->getBaseShippingInclTax(), $trialSubscriptionsConfig["base_shipping_total"], "Base Shipping");
+        $this->assertEquals(5, $trialSubscriptionsConfig["shipping_total"], "Shipping");
+        $this->assertEquals(5, $trialSubscriptionsConfig["base_shipping_total"], "Base Shipping");
 
-        $this->assertEquals($order->getDiscountAmount(), $trialSubscriptionsConfig["discount_total"], "Discount");
-        $this->assertEquals($order->getBaseDiscountAmount(), $trialSubscriptionsConfig["base_discount_total"], "Base Discount");
+        $this->assertEquals(0, $trialSubscriptionsConfig["discount_total"], "Discount");
+        $this->assertEquals(0, $trialSubscriptionsConfig["base_discount_total"], "Base Discount");
 
-        $this->assertEquals($order->getTaxAmount(), $trialSubscriptionsConfig["tax_total"], "Tax");
-        $this->assertEquals($order->getBaseTaxAmount(), $trialSubscriptionsConfig["tax_total"], "Base Tax");
+        $this->assertEquals(1.14, $trialSubscriptionsConfig["tax_total"], "Tax");
+        $this->assertEquals(1.14, $trialSubscriptionsConfig["tax_total"], "Base Tax");
     }
 }

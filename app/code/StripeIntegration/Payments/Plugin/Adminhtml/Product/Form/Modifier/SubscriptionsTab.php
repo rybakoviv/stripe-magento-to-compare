@@ -124,42 +124,42 @@ class SubscriptionsTab extends AbstractModifier
                                 ]
                             ]
                         ],
-                        'prorate_upgrades' => [
-                            'arguments' => [
-                                'data' => [
-                                    'config' => [
-                                        'visible' => $visibleParentSubscriptionOptions,
-                                    ]
-                                ]
-                            ]
-                        ],
-                        'prorate_upgrades_use_config' => [
-                            'arguments' => [
-                                'data' => [
-                                    'config' => [
-                                        'visible' => $visibleParentSubscriptionOptions,
-                                    ]
-                                ]
-                            ]
-                        ],
-                        'prorate_downgrades' => [
-                            'arguments' => [
-                                'data' => [
-                                    'config' => [
-                                        'visible' => $visibleParentSubscriptionOptions,
-                                    ]
-                                ]
-                            ]
-                        ],
-                        'prorate_downgrades_use_config' => [
-                            'arguments' => [
-                                'data' => [
-                                    'config' => [
-                                        'visible' => $visibleParentSubscriptionOptions,
-                                    ]
-                                ]
-                            ]
-                        ],
+                        // 'prorate_upgrades' => [
+                        //     'arguments' => [
+                        //         'data' => [
+                        //             'config' => [
+                        //                 'visible' => $visibleParentSubscriptionOptions,
+                        //             ]
+                        //         ]
+                        //     ]
+                        // ],
+                        // 'prorate_upgrades_use_config' => [
+                        //     'arguments' => [
+                        //         'data' => [
+                        //             'config' => [
+                        //                 'visible' => $visibleParentSubscriptionOptions,
+                        //             ]
+                        //         ]
+                        //     ]
+                        // ],
+                        // 'prorate_downgrades' => [
+                        //     'arguments' => [
+                        //         'data' => [
+                        //             'config' => [
+                        //                 'visible' => $visibleParentSubscriptionOptions,
+                        //             ]
+                        //         ]
+                        //     ]
+                        // ],
+                        // 'prorate_downgrades_use_config' => [
+                        //     'arguments' => [
+                        //         'data' => [
+                        //             'config' => [
+                        //                 'visible' => $visibleParentSubscriptionOptions,
+                        //             ]
+                        //         ]
+                        //     ]
+                        // ],
                     ]
                 ],
             ]

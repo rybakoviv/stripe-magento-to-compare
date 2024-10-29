@@ -41,21 +41,23 @@ class DiscountTest extends \PHPUnit\Framework\TestCase
         $order = $this->tests->refreshOrder($order);
         $orderIncrementId = $order->getIncrementId();
 
+        $orderTotal = 1799; // 10 Price, 1 discount, 5 shipping (not taxed), 3 initial fee: 12 * 1.0825 + 5 = 17.99
+        $initialFee = 325;
+        $initialFeeTax = 0.25;
+
         $this->tests->compare($order->debug(), [
             "state" => "processing",
             "status" => "processing",
             "base_subtotal" => 10,
             "base_discount_amount" => -1,
-            "base_total_paid" => $order->getBaseGrandTotal(),
-            "total_paid" => $order->getGrandTotal(),
+            "base_total_paid" => $orderTotal / 100,
+            "total_paid" => $orderTotal / 100,
         ]);
 
         // $paymentIntent = $this->tests->stripe()->paymentIntents->retrieve($paymentIntent->id);
 
-        $grandTotal = round(floatval($order->getGrandTotal()) * 100);
-
         $this->tests->compare($paymentIntent, [
-            "amount" => $grandTotal,
+            "amount" => $orderTotal,
             "description" => "Subscription order #$orderIncrementId by Joyce Strother"
         ]);
 
@@ -73,9 +75,9 @@ class DiscountTest extends \PHPUnit\Framework\TestCase
         // Order checks
         $this->tests->compare($recurringOrder->getData(), [
             "discount_amount" => $order->getDiscountAmount(),
-            'grand_total' => round(floatval($order->getGrandTotal()) - 3.25, 2), // 3.25 is initial fee + tax
+            'grand_total' => round(floatval($order->getGrandTotal()) - ($initialFee / 100), 2), // 3.25 is initial fee + tax
             'shipping_amount' => $order->getShippingAmount(),
-            'tax_amount' => round(floatval($order->getTaxAmount()) - 0.25, 2), // 0.25 is the tax for the initial fee
+            'tax_amount' => round(floatval($order->getTaxAmount()) - $initialFeeTax, 2), // 0.25 is the tax for the initial fee
         ]);
     }
 }

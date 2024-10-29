@@ -4,4 +4,9 @@
         <css src="StripeIntegration_Payments::css/admin.css" />
         <css src="StripeIntegration_Payments::css/stripe_payments_base.css" />
     </head>
+    <body>
+        <referenceContainer name="content">
+            <block class="StripeIntegration\Payments\Block\Adminhtml\Payment\AdminStripeParams" name="stripe_payments_admin_stripe_params" template="StripeIntegration_Payments::form/stripe_init_params.phtml" />
+        </referenceContainer>
+    </body>
 </page>

@@ -39,7 +39,6 @@ class Convert
             return 0.0;
 
         $amount = floatval($amount);
-        $precision = $this->getCurrencyPrecision($currency);
 
         if ($this->isZeroDecimalCurrency($currency))
             return $amount;

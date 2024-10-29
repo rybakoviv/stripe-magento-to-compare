@@ -113,7 +113,7 @@ class SubscriptionPriceCommandTaxInclusiveTest extends \PHPUnit\Framework\TestCa
         // Change the subscription price
         $this->assertNotEmpty($customer->subscriptions->data[0]->metadata->{"SubscriptionProductIDs"});
         $productId = $customer->subscriptions->data[0]->metadata->{"SubscriptionProductIDs"};
-        $product = $this->helper->loadProductById($productId);
+        $product = $this->productRepository->getById($productId);
         $productId = $product->getEntityId();
         $product->setPrice(15);
         $product = $this->tests->saveProduct($product);

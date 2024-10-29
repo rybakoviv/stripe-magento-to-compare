@@ -325,7 +325,7 @@ class Subscription
         // The subscription update will happen based on the quote items
         $quote = $this->quoteHelper->getQuote();
         $subscriptionDetails = $this->subscriptionsHelper->getSubscriptionFromQuote($quote);
-        $subscriptionItems = $this->subscriptionsHelper->getSubscriptionItemsFromQuote($quote, $subscriptionDetails);
+        $subscriptionItems = $this->subscriptionsHelper->getSubscriptionItemsFromSubscriptionDetails($subscriptionDetails);
 
         $oldPriceId = $subscription->plan->id;
         $newPriceId = $subscriptionItems[0]['price'];
@@ -391,8 +391,8 @@ class Subscription
         $order = $payment->getOrder();
 
         $quote = $this->quoteHelper->getQuote();
-        $subscriptionDetails = $this->subscriptionsHelper->getSubscriptionFromQuote($quote);
-        $subscriptionItems = $this->subscriptionsHelper->getSubscriptionItemsFromQuote($quote, $subscriptionDetails, $order);
+        $subscriptionDetails = $this->subscriptionsHelper->getSubscriptionFromOrder($order);
+        $subscriptionItems = $this->subscriptionsHelper->getSubscriptionItemsFromSubscriptionDetails($subscriptionDetails);
 
         if (count($subscriptionItems) > 1)
         {
@@ -406,7 +406,7 @@ class Subscription
             "metadata" => $subscriptionItems[0]['metadata'] // There is only one item for the entire order,
         ];
 
-        $metadata = $this->subscriptionsHelper->collectMetadataForSubscription($quote, $subscriptionDetails, $order);
+        $metadata = $this->subscriptionsHelper->collectMetadataForSubscription($subscriptionDetails['profile']);
         $params["description"] = $this->orderHelper->getOrderDescription($order);
         $params["metadata"] = $metadata;
 
@@ -510,7 +510,16 @@ class Subscription
             $subscription->plan->interval_count,
             $subscription->plan->interval
         );
+        $newSubscriptionAmount = $this->subscriptionsHelper->formatInterval(
+            $updatedSubscription->plan->amount,
+            $updatedSubscription->plan->currency,
+            $updatedSubscription->plan->interval_count,
+            $updatedSubscription->plan->interval
+        );
         $originalOrder->getPayment()->setAdditionalInformation("previous_subscription_amount", (string)$previousSubscriptionAmount);
+        $originalOrder->getPayment()->setAdditionalInformation("new_subscription_amount", (string)$newSubscriptionAmount);
+        $payment->setAdditionalInformation("previous_subscription_amount", (string)$previousSubscriptionAmount);
+        $payment->setAdditionalInformation("new_subscription_amount", (string)$newSubscriptionAmount);
         $this->orderHelper->saveOrder($originalOrder);
 
         $this->helper->getCheckoutSession()->unsSubscriptionUpdateDetails();

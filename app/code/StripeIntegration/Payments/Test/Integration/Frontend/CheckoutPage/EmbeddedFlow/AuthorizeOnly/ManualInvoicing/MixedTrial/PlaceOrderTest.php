@@ -47,7 +47,7 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->tests->compare($order->getData(), [
             "state" => "processing",
             "status" => "processing",
-            "base_total_paid" => 31.66
+            "base_total_paid" => 15.83
         ]);
     }
 }

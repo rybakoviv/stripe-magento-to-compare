@@ -14,22 +14,20 @@ class RecurringOrder
     private $dataHelper;
     private $quoteFactory;
     private $storeManager;
-    private $cartRepositoryInterface;
-    private $cartManagementInterface;
-    private $customerFactory;
-    private $adminOrderCreateModel;
+    private $checkoutFlow;
     private $shipmentEstimation;
     private $dataObjectFactory;
-    private $webhooksHelper;
     private $subscriptions;
     private $creditmemoHelper;
-    private $shippingRateFactory;
     private $config;
     private $paymentsHelper;
     private $recurringOrderData;
     private $quoteHelper;
     private $orderHelper;
     private $convert;
+    private $subscriptionProductFactory;
+    private $productHelper;
+    private $orderItemRepository;
 
     public function __construct(
         \StripeIntegration\Payments\Helper\Generic $paymentsHelper,
@@ -37,21 +35,19 @@ class RecurringOrder
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
         \StripeIntegration\Payments\Helper\Convert $convert,
-        \StripeIntegration\Payments\Model\Config $config,
-        \Magento\Quote\Model\QuoteFactory $quoteFactory,
-        \Magento\Store\Model\Store $storeManager,
-        \Magento\Quote\Model\QuoteManagement $quoteManagement,
-        \Magento\Quote\Api\CartRepositoryInterface $cartRepositoryInterface,
-        \Magento\Quote\Api\CartManagementInterface $cartManagementInterface,
-        \Magento\Customer\Api\Data\CustomerInterfaceFactory $customerFactory,
-        \Magento\Sales\Model\AdminOrder\Create $adminOrderCreateModel,
-        \Magento\Quote\Api\ShipmentEstimationInterface $shipmentEstimation,
-        \Magento\Framework\DataObject\Factory $dataObjectFactory,
-        \StripeIntegration\Payments\Helper\Webhooks $webhooksHelper,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptions,
         \StripeIntegration\Payments\Helper\Creditmemo $creditmemoHelper,
         \StripeIntegration\Payments\Helper\RecurringOrderData $recurringOrderData,
-        \Magento\Quote\Model\Quote\Address\RateFactory $shippingRateFactory
+        \StripeIntegration\Payments\Helper\Product $productHelper,
+        \StripeIntegration\Payments\Model\Config $config,
+        \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
+        \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
+        \Magento\Quote\Model\QuoteFactory $quoteFactory,
+        \Magento\Store\Model\Store $storeManager,
+        \Magento\Quote\Model\QuoteManagement $quoteManagement,
+        \Magento\Quote\Api\ShipmentEstimationInterface $shipmentEstimation,
+        \Magento\Framework\DataObject\Factory $dataObjectFactory,
+        \Magento\Sales\Api\OrderItemRepositoryInterface $orderItemRepository
     ) {
         $this->paymentsHelper = $paymentsHelper;
         $this->dataHelper = $dataHelper;
@@ -59,20 +55,18 @@ class RecurringOrder
         $this->orderHelper = $orderHelper;
         $this->convert = $convert;
         $this->config = $config;
+        $this->subscriptionProductFactory = $subscriptionProductFactory;
         $this->quoteFactory = $quoteFactory;
         $this->storeManager = $storeManager;
         $this->quoteManagement = $quoteManagement;
-        $this->cartRepositoryInterface = $cartRepositoryInterface;
-        $this->cartManagementInterface = $cartManagementInterface;
-        $this->customerFactory = $customerFactory;
-        $this->adminOrderCreateModel = $adminOrderCreateModel;
+        $this->checkoutFlow = $checkoutFlow;
         $this->shipmentEstimation = $shipmentEstimation;
         $this->dataObjectFactory = $dataObjectFactory;
-        $this->webhooksHelper = $webhooksHelper;
         $this->subscriptions = $subscriptions;
         $this->creditmemoHelper = $creditmemoHelper;
-        $this->shippingRateFactory = $shippingRateFactory;
         $this->recurringOrderData = $recurringOrderData;
+        $this->productHelper = $productHelper;
+        $this->orderItemRepository = $orderItemRepository;
     }
 
     public function createFromSubscriptionItems($invoiceId)
@@ -145,7 +139,6 @@ class RecurringOrder
         $details = [
             "invoice_amount" => $this->paymentsHelper->convertStripeAmountToOrderAmount($invoice->amount_paid, $invoice->currency, $order),
             "stripe_invoice_amount" => $invoice->amount_paid,
-            "base_invoice_amount" => $this->paymentsHelper->convertStripeAmountToBaseOrderAmount($invoice->amount_paid, $invoice->currency, $order),
             "invoice_currency" => $invoice->currency,
             "invoice_tax_amount" => $this->paymentsHelper->convertStripeAmountToOrderAmount($invoice->tax, $invoice->currency, $order),
             "subscription_amount" => $subscriptionAmount,
@@ -258,18 +251,52 @@ class RecurringOrder
                 {
                     if (in_array($orderItem->getProductId(), $subscriptionProductIDs))
                     {
-                        $product = $this->paymentsHelper->loadProductById($orderItem->getProductId());
-
-                        if (!$product)
+                        try
+                        {
+                            $product = $this->productHelper->getProduct($orderItem->getProductId());
+                        }
+                        catch (\Exception $e)
                         {
                             throw new GenericException("Product with ID " . $orderItem->getProductId() . " has been deleted.");
                         }
 
-                        $profile = $this->subscriptions->getSubscriptionDetails($product, $order, $orderItem);
+                        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($orderItem->getProductId());
+                        if (!$subscriptionProductModel->isSubscriptionProduct())
+                        {
+                            throw new GenericException("Product with ID " . $orderItem->getProductId() . " is not a subscription product.");
+                        }
+
+                        $profile = $this->subscriptions->getSubscriptionDetails($subscriptionProductModel, $order, $orderItem);
+
+                        $amount = $profile["amount_magento"];
+                        $baseAmount = $profile["base_amount_magento"];
+
+                        if ($orderItem->getStripeOriginalSubscriptionPrice())
+                        {
+                            $amount = $orderItem->getStripeOriginalSubscriptionPrice();
+                        }
+                        else
+                        {
+                            // Migrate order items from older versions of the module
+                            $orderItem->setStripeOriginalSubscriptionPrice($amount);
+                            $this->orderItemRepository->save($orderItem);
+                        }
+
+                        if ($orderItem->getStripeBaseOriginalSubscriptionPrice())
+                        {
+                            $baseAmount = $orderItem->getStripeBaseOriginalSubscriptionPrice();
+                        }
+                        else
+                        {
+                            // Migrate order items from older versions of the module
+                            $orderItem->setStripeBaseOriginalSubscriptionPrice($baseAmount);
+                            $this->orderItemRepository->save($orderItem);
+                        }
+
                         $details["products"][$orderItem->getProductId()] = [
                             "id" => $orderItem->getProductId(),
-                            "amount" => $profile['amount_magento'],
-                            "base_amount" => $this->paymentsHelper->convertOrderAmountToBaseAmount($profile['amount_magento'], $profile['currency'], $order),
+                            "amount" => $amount,
+                            "base_amount" => $baseAmount,
                             "qty" => $profile['qty'],
                             "currency" => $profile['currency'],
                             "tax_percent" => $profile['tax_percent'],
@@ -312,14 +339,22 @@ class RecurringOrder
                 {
                     if (in_array($orderItem->getProductId(), $subscriptionProductIDs))
                     {
-                        $product = $this->paymentsHelper->loadProductById($orderItem->getProductId());
-
-                        if (!$product)
+                        try
+                        {
+                            $product = $this->productHelper->getProduct($orderItem->getProductId());
+                        }
+                        catch (\Exception $e)
                         {
                             throw new GenericException("Product with ID " . $orderItem->getProductId() . " has been deleted.");
                         }
 
-                        $profile = $this->subscriptions->getSubscriptionDetails($product, $order, $orderItem);
+                        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($orderItem->getProductId());
+                        if (!$subscriptionProductModel->isSubscriptionProduct())
+                        {
+                            throw new GenericException("Product with ID " . $orderItem->getProductId() . " is not a subscription product.");
+                        }
+
+                        $profile = $this->subscriptions->getSubscriptionDetails($subscriptionProductModel, $order, $orderItem);
                         $details["products"][$orderItem->getProductId()] = [
                             "id" => $orderItem->getProductId(),
                             "amount" => $profile['amount_magento'],
@@ -372,13 +407,11 @@ class RecurringOrder
         $this->quoteHelper->saveQuote($quote);
 
         // Create Order From Quote
+        $this->checkoutFlow->isRecurringSubscriptionOrderBeingPlaced = true;
         $order = $this->quoteManagement->submit($quote);
         $this->addOrderCommentsTo($order, $originalOrder->getIncrementId());
         $this->setTransactionDetailsFor($order, $invoiceDetails);
         $this->updatePaymentDetails($order, $invoiceDetails);
-
-        // Create a credit memo if the order was underpaid
-        $this->refundUnderchargedOrder($order, $this->invoice);
 
         return $order;
     }
@@ -488,34 +521,7 @@ class RecurringOrder
             $this->paymentsHelper->logError($e->getMessage(), $e->getTraceAsString());
         }
 
-        // Create a credit memo if the order was underpaid
-        $this->refundUnderchargedOrder($order, $this->invoice);
-
         return $order;
-    }
-
-    public function refundUnderchargedOrder($order, $invoice)
-    {
-        try
-        {
-            if ($this->creditmemoHelper->isUnderCharged($order, $invoice->amount_paid, $invoice->currency))
-            {
-                // The customer may have a credit balance
-                $invoiceAmount = $this->paymentsHelper->convertStripeAmountToOrderAmount($invoice->amount_paid, $invoice->currency, $order);
-                $startingBalance = $this->paymentsHelper->convertStripeAmountToOrderAmount($invoice->starting_balance, $invoice->currency, $order);
-
-                $paid = $this->paymentsHelper->addCurrencySymbol($invoiceAmount, $invoice->currency);
-                $balance = $this->paymentsHelper->addCurrencySymbol($startingBalance, $invoice->currency);
-                $comment = __("The paid invoice amount is %1. The customer's starting balance was %2.", $paid, $balance);
-                $order->addStatusToHistory(false, $comment, false);
-                $this->orderHelper->saveOrder($order);
-                $this->creditmemoHelper->refundUnderchargedOrder($order, $invoice->amount_paid, $invoice->currency);
-            }
-        }
-        catch (\Exception $e)
-        {
-            $this->paymentsHelper->logError("Could not refund undercharged order: " . $e->getMessage(), $e->getTraceAsString());
-        }
     }
 
     public function updatePaymentDetails($order, $invoiceDetails)
@@ -558,21 +564,15 @@ class RecurringOrder
         $order->setState($state)->setStatus($status);
         $this->orderHelper->saveOrder($order);
 
-        if ($order->canInvoice())
-        {
-            $this->paymentsHelper->invoiceSubscriptionOrder($order, $transactionId, \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE);
-        }
-        else
-        {
-            foreach($order->getInvoiceCollection() as $invoice)
-                $invoice->setTransactionId($transactionId)->save();
-        }
+        // There should be one invoice
+        foreach($order->getInvoiceCollection() as $invoice)
+            $invoice->setTransactionId($transactionId)->save();
     }
 
     public function setQuoteDiscountFrom($originalOrder, &$quote, $stripeDiscountObject)
     {
         $couponCode = $originalOrder->getCouponCode();
-        $couponModel = $this->subscriptions->getExpiringCoupon($originalOrder);
+        $couponModel = $this->orderHelper->getExpiringCoupon($originalOrder);
 
         if (!empty($couponCode))
         {
@@ -673,7 +673,15 @@ class RecurringOrder
 
     protected function addBundleProduct($quote, $parentOrderItem)
     {
-        $productModel = $this->paymentsHelper->loadProductById($parentOrderItem->getProductId());
+        try
+        {
+            $productModel = $this->productHelper->getProduct($parentOrderItem->getProductId());
+        }
+        catch (\Exception $e)
+        {
+            throw new GenericException("Cannot add product " . $parentOrderItem->getName() . " to the order because it has been deleted.");
+        }
+
         $productOptions = $parentOrderItem->getProductOptions();
         if (empty($productOptions['info_buyRequest']))
         {
@@ -717,7 +725,7 @@ class RecurringOrder
     {
         foreach ($invoiceDetails['products'] as $productId => $product)
         {
-            $productModel = $this->paymentsHelper->loadProductById($productId);
+            $productModel = $this->productHelper->getProduct($productId);
 
             if (!empty($product["parent_item"]) && $product["parent_item"]->getProductType() == "bundle")
             {

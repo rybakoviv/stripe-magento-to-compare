@@ -33,7 +33,7 @@ class Logger
         else
             $data = $obj;
 
-        if (!is_string($data))
+        if (is_array($data) || is_object($data))
         {
             $data = $this->serializer->serialize($data);
             $data = $this->serializer->unserialize($data);

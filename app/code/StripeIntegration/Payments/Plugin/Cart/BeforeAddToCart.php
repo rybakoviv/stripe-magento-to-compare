@@ -6,20 +6,23 @@ class BeforeAddToCart
 {
     private $messageManager;
     private $config;
-    private $subscriptions;
     private $configurableProductFactory;
+    private $subscriptionProductFactory;
+    private $quoteHelper;
 
     public function __construct(
-        \Magento\Framework\Message\ManagerInterface $messageManager,
-        \StripeIntegration\Payments\Helper\Subscriptions $subscriptions,
         \StripeIntegration\Payments\Model\Config $config,
+        \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
+        \StripeIntegration\Payments\Helper\Quote $quoteHelper,
+        \Magento\Framework\Message\ManagerInterface $messageManager,
         \Magento\ConfigurableProduct\Model\Product\Type\ConfigurableFactory $configurableProductFactory
     )
     {
         $this->messageManager = $messageManager;
         $this->config = $config;
-        $this->subscriptions = $subscriptions;
         $this->configurableProductFactory = $configurableProductFactory;
+        $this->subscriptionProductFactory = $subscriptionProductFactory;
+        $this->quoteHelper = $quoteHelper;
     }
 
     public function beforeAddProduct(
@@ -30,25 +33,53 @@ class BeforeAddToCart
     )
     {
         if (!$this->config->isSubscriptionsEnabled())
-            return;
-
-        $product = $this->getProductFromRequest($product, $request);
-
-
-        if (!$this->subscriptions->isSubscriptionProduct($product))
-            return;
-
-        $itemsRemoved = false;
-        foreach($quote->getAllItems() as $item)
         {
-            if ($this->subscriptions->isSubscriptionProduct($item->getProduct()))
+            return;
+        }
+
+        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($product->getId());
+
+        if ($product->getTypeId() == 'bundle')
+        {
+            // Based on the request, determine which child products are being added
+            $bundleOption = $request->getBundleOption();
+
+            foreach ($bundleOption as $optionId => $selectionId)
             {
-                $quote->removeItem($item->getId());
-                $itemsRemoved = true;
+                if (!is_array($selectionId))
+                {
+                    $selectionId = [$selectionId];
+                }
+
+                foreach ($selectionId as $selId)
+                {
+                    $selection = $product->getTypeInstance()
+                        ->getSelectionsCollection([$optionId], $product)
+                        ->getItemById($selId);
+
+                    if ($selection) {
+                        $subscriptionProductModel = $this->subscriptionProductFactory->create()
+                            ->fromProductId($selection->getProductId());
+
+                        if ($subscriptionProductModel->isSubscriptionProduct()) {
+                            return;
+                        }
+                    }
+                }
             }
         }
 
-        if ($itemsRemoved)
+        if ($product->getTypeId() == 'configurable')
+        {
+            $product = $this->getConfigurableChildProductFromRequest($product, $request);
+        }
+
+        if (!$subscriptionProductModel->isSubscriptionProduct())
+        {
+            return;
+        }
+
+        if ($this->quoteHelper->removeSubscriptions($quote))
         {
             $this->messageManager->addNoticeMessage(__('You can only purchase one subscription at a time.'));
         }
@@ -56,7 +87,7 @@ class BeforeAddToCart
         return null;
     }
 
-    protected function getProductFromRequest($addProduct, $request)
+    private function getConfigurableChildProductFromRequest($addProduct, $request)
     {
         if (empty($request) || is_numeric($request))
         {

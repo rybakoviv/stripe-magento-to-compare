@@ -152,7 +152,8 @@
             "customer_id": true,
             "order_id": true,
             "pm_id": true,
-            "created_at": true
+            "created_at": true,
+            "customer_email": true
         },
         "index": {
             "STRIPE_PAYMENT_INTENTS_PI_ID": true,
@@ -239,7 +240,9 @@
     },
     "quote": {
         "column": {
-            "is_used_for_recurring_orders": true
+            "is_used_for_recurring_orders": true,
+            "initial_fee_tax": true,
+            "base_initial_fee_tax": true
         },
         "index": {
             "QUOTE_IS_USED_FOR_RECURRING_ORDERS": true
@@ -255,7 +258,9 @@
             "initial_fee": true,
             "base_initial_fee": true,
             "initial_fee_tax": true,
-            "base_initial_fee_tax": true
+            "base_initial_fee_tax": true,
+            "stripe_original_subscription_price": true,
+            "stripe_base_original_subscription_price": true
         }
     },
     "quote_item": {
@@ -263,7 +268,9 @@
             "initial_fee": true,
             "base_initial_fee": true,
             "initial_fee_tax": true,
-            "base_initial_fee_tax": true
+            "base_initial_fee_tax": true,
+            "stripe_original_subscription_price": true,
+            "stripe_base_original_subscription_price": true
         }
     },
     "sales_order": {
@@ -272,7 +279,9 @@
             "stripe_radar_risk_level": true,
             "stripe_payment_method_type": true,
             "stripe_payment_method_card": true,
-            "stripe_payment_method_label": true
+            "stripe_payment_method_label": true,
+            "initial_fee_tax": true,
+            "base_initial_fee_tax": true
         },
         "index": {
             "SALES_ORDER_STRIPE_RADAR_RISK_SCORE": true,
@@ -288,7 +297,14 @@
             "stripe_radar_risk_level": true,
             "stripe_payment_method_type": true,
             "stripe_payment_method_card": true,
-            "stripe_payment_method_label": true
+            "stripe_payment_method_label": true,
+            "initial_fee_tax": true,
+            "base_initial_fee_tax": true
+        },
+        "index": {
+            "SALES_ORDER_GRID_STRIPE_RADAR_RISK_SCORE": true,
+            "SALES_ORDER_GRID_STRIPE_RADAR_RISK_LEVEL": true,
+            "SALES_ORDER_GRID_STRIPE_PAYMENT_METHOD_TYPE": true
         }
     },
     "stripe_payment_methods": {
@@ -335,6 +351,58 @@
         "constraint": {
             "PRIMARY": true,
             "STRIPE_SUBSCRIPTION_OPTS_PRD_ID_CAT_PRD_ENTT_ENTT_ID": true
+        }
+    },
+    "stripe_setup_intents": {
+        "column": {
+            "si_id": true,
+            "quote_id": true,
+            "order_increment_id": true,
+            "pm_id": true,
+            "is_delayed_subscription_setup": true,
+            "created_at": true
+        },
+        "index": {
+            "STRIPE_SETUP_INTENTS_SI_ID": true,
+            "STRIPE_SETUP_INTENTS_QUOTE_ID": true,
+            "STRIPE_SETUP_INTENTS_ORDER_INCREMENT_ID": true,
+            "STRIPE_SETUP_INTENTS_PM_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "stripe_account": {
+        "column": {
+            "id": true,
+            "account_id": true,
+            "publishable_key": true,
+            "secret_key": true,
+            "default_currency": true,
+            "country": true,
+            "is_valid": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "STRIPE_ACCOUNT_ACCOUNT_ID": true,
+            "STRIPE_ACCOUNT_PUBLISHABLE_KEY": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "stripe_subscription_reactivations": {
+        "column": {
+            "id": true,
+            "order_increment_id": true,
+            "reactivated_at": true
+        },
+        "index": {
+            "STRIPE_SUBSCRIPTION_REACTIVATIONS_ORDER_INCREMENT_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true
         }
     }
 }

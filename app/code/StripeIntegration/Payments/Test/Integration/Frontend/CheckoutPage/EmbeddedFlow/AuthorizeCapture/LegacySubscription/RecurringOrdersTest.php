@@ -9,17 +9,13 @@ namespace StripeIntegration\Payments\Test\Integration\Frontend\CheckoutPage\Embe
  */
 class RecurringOrdersTest extends \PHPUnit\Framework\TestCase
 {
-    private $objectManager;
     private $quote;
     private $tests;
-    private $paymentMethodHelper;
 
     public function setUp(): void
     {
-        $this->objectManager = \Magento\TestFramework\ObjectManager::getInstance();
         $this->quote = new \StripeIntegration\Payments\Test\Integration\Helper\Quote();
         $this->tests = new \StripeIntegration\Payments\Test\Integration\Helper\Tests($this);
-        $this->paymentMethodHelper = $this->objectManager->get(\StripeIntegration\Payments\Test\Integration\Helper\PaymentMethod::class);
     }
 
     /**

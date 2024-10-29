@@ -16,10 +16,12 @@ class InvoiceUpcoming
     private $webhooksHelper;
     private $quoteHelper;
     private $orderHelper;
+    private $stripeProductFactory;
 
     public function __construct(
         \StripeIntegration\Payments\Model\Stripe\Service\StripeObjectServicePool $stripeObjectServicePool,
         \StripeIntegration\Payments\Model\Config $config,
+        \StripeIntegration\Payments\Model\Stripe\ProductFactory $stripeProductFactory,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
@@ -32,6 +34,7 @@ class InvoiceUpcoming
         $this->setData($stripeObjectService);
 
         $this->config = $config;
+        $this->stripeProductFactory = $stripeProductFactory;
         $this->paymentsHelper = $paymentsHelper;
         $this->quoteHelper = $quoteHelper;
         $this->orderHelper = $orderHelper;
@@ -74,7 +77,7 @@ class InvoiceUpcoming
         // $object['subscription'] = "sub_1NL157HLyfDWKHBqHEC9wLdt";
 
         // Fetch the subscription, expanding its discount
-        $subscription = $this->config->getStripeClient()->subscriptions->retrieve(
+        $originalSubscription = $this->config->getStripeClient()->subscriptions->retrieve(
             $object['subscription'],
             ['expand' => ['discount']]
         );
@@ -85,7 +88,12 @@ class InvoiceUpcoming
         $this->config->reInitStripe($originalOrder->getStoreId(), $originalOrder->getOrderCurrencyCode(), $mode);
 
         // Get the tax percent from the original order
-        $originalOrderItem = $this->getSubscriptionOrderItem($originalOrder);
+        $subscription = $this->subscriptionsHelper->getSubscriptionFromOrder($originalOrder);
+        if (!$subscription)
+        {
+            throw new WebhookException("No subscription found in original order");
+        }
+        $originalOrderItem = $subscription['order_item'];
         $originalTaxPercent = $this->getTaxPercent($originalOrderItem);
         $latestTaxPercent = $originalOrder->getPayment()->getAdditionalInformation("latest_tax_percent");
         if ($latestTaxPercent === null)
@@ -107,15 +115,23 @@ class InvoiceUpcoming
         $this->recurringOrderHelper->setQuoteAddressesFrom($originalOrder, $quote);
         $this->recurringOrderHelper->setQuoteItemsFrom($originalOrder, $invoiceDetails, $quote);
         $this->recurringOrderHelper->setQuoteShippingMethodFrom($originalOrder, $quote);
-        $this->recurringOrderHelper->setQuoteDiscountFrom($originalOrder, $quote, $subscription->discount);
+        $this->recurringOrderHelper->setQuoteDiscountFrom($originalOrder, $quote, $originalSubscription->discount);
         $this->recurringOrderHelper->setQuotePaymentMethodFrom($originalOrder, $quote);
         $quote->setTotalsCollectedFlag(false)->collectTotals();
         $quote->setIsActive(false);
-        $this->quoteHelper->saveQuote($quote);
+        $this->quoteHelper->saveQuote($quote); // This is needed because the quote is saved inside recurringOrderHelper->setQuotePaymentMethodFrom() as active
+
+        // Get the subscription profile
+        $subscription = $this->subscriptionsHelper->getSubscriptionFromQuote($quote);
+        if (!$subscription)
+        {
+            throw new WebhookException("Could not find the subscription in the quote");
+        }
+        $profile = $subscription['profile'];
+        $stripeProductModel = $this->stripeProductFactory->create()->fromQuoteItem($subscription['quote_item']);
 
         // Check if the tax percent has changed for the subscription item
-        $newTaxPercent = $this->getNewTaxPercent($quote, $originalOrderItem);
-
+        $newTaxPercent = $this->getNewTaxPercent($profile);
         if ($newTaxPercent === null)
         {
             throw new WebhookException("The new tax percent could not be calculated");
@@ -133,29 +149,19 @@ class InvoiceUpcoming
 
             $originalOrder->getPayment()->setAdditionalInformation("latest_tax_percent", $newTaxPercent);
             $this->orderHelper->saveOrder($originalOrder);
-
-            $subscription = $this->config->getStripeClient()->subscriptions->retrieve($object['subscription']);
-            $this->updateSubscriptionPriceFromQuote($subscription, $quote);
+            $this->updateSubscriptionPriceFrom($originalSubscription, $profile, $stripeProductModel);
         }
     }
 
-    protected function getNewTaxPercent($quote, $originalOrderItem)
+    protected function getNewTaxPercent($profile)
     {
-        $orderItem = $this->subscriptionsHelper->getVisibleSubscriptionItem($originalOrderItem);
-        foreach ($quote->getAllItems() as $quoteItem)
-        {
-            if ($quoteItem->getProductId() == $orderItem->getProductId())
-            {
-                return $quoteItem->getTaxPercent();
-            }
-        }
-
-        return null;
+        // The reason this method is separate, is so that it is mockable in the test suite
+        return $profile['tax_percent'] ?? null;
     }
 
-    private function updateSubscriptionPriceFromQuote($originalSubscription, $quote, $prorate = false)
+    private function updateSubscriptionPriceFrom($originalSubscription, $profile, $stripeProductModel)
     {
-        $params = $this->getSubscriptionParamsFromQuote($quote);
+        $params = $this->getSubscriptionParamsFromQuote($profile, $stripeProductModel);
 
         if (empty($params['items']))
         {
@@ -173,36 +179,16 @@ class InvoiceUpcoming
 
         $items = array_merge($deletedItems, $params['items']);
         $updateParams = [
-            'items' => $items
+            "items" => $items,
+            "proration_behavior" => "none"
         ];
-
-        if (!$prorate)
-        {
-            $updateParams["proration_behavior"] = "none";
-        }
 
         return $this->config->getStripeClient()->subscriptions->update($originalSubscription->id, $updateParams);
     }
 
-    private function getSubscriptionParamsFromQuote($quote)
+    private function getSubscriptionParamsFromQuote($profile, $stripeProductModel)
     {
-        $subscription = $this->subscriptionsHelper->getSubscriptionFromQuote($quote);
-
-        $params = [
-            'items' => $this->getSubscriptionItemsFromQuote($subscription)
-        ];
-
-        return $params;
-    }
-
-    private function getSubscriptionItemsFromQuote($subscription)
-    {
-        if (empty($subscription))
-        {
-            throw new WebhookException("No subscription specified");
-        }
-
-        $recurringPrice = $this->subscriptionsHelper->createSubscriptionPriceForSubscription($subscription);
+        $recurringPrice = $this->subscriptionsHelper->createSubscriptionPriceForSubscription($profile, $stripeProductModel);
 
         $items = [];
 
@@ -211,19 +197,11 @@ class InvoiceUpcoming
             "quantity" => 1
         ];
 
-        return $items;
-    }
+        $params = [
+            'items' => $items
+        ];
 
-    public function getSubscriptionOrderItem($order)
-    {
-        // Get the tax percent from the original order
-        $subscriptions = $this->subscriptionsHelper->getSubscriptionsFromOrder($order);
-        if (count($subscriptions) < 1)
-        {
-            throw new WebhookException("No subscriptions found in original order");
-        }
-        $subscription = array_pop($subscriptions);
-        return $subscription['order_item'];
+        return $params;
     }
 
     public function getTaxPercent($orderItem)

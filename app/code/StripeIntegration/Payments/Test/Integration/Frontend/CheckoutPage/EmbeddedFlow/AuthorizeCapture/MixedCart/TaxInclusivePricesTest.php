@@ -9,17 +9,17 @@ namespace StripeIntegration\Payments\Test\Integration\Frontend\CheckoutPage\Embe
  */
 class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
 {
-    private $helper;
     private $objectManager;
     private $quote;
     private $subscriptions;
+    private $subscriptionProductFactory;
 
     public function setUp(): void
     {
         $this->objectManager = \Magento\TestFramework\ObjectManager::getInstance();
-        $this->helper = $this->objectManager->get(\StripeIntegration\Payments\Helper\Generic::class);
         $this->subscriptions = $this->objectManager->get(\StripeIntegration\Payments\Helper\Subscriptions::class);
         $this->quote = new \StripeIntegration\Payments\Test\Integration\Helper\Quote();
+        $this->subscriptionProductFactory = $this->objectManager->get(\StripeIntegration\Payments\Model\SubscriptionProductFactory::class);
     }
 
     /**
@@ -52,8 +52,8 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
         }
         $this->assertNotEmpty($orderItem);
 
-        $product = $this->helper->loadProductById($orderItem->getProductId());
-        $subscriptionProfile = $this->subscriptions->getSubscriptionDetails($product, $order, $orderItem);
+        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromOrderItem($orderItem);
+        $subscriptionProfile = $this->subscriptions->getSubscriptionDetails($subscriptionProductModel, $order, $orderItem);
 
         $expectedProfile = [
             "name" => "Simple Monthly Subscription + Initial Fee",
@@ -70,7 +70,7 @@ class TaxInclusivePricesTest extends \PHPUnit\Framework\TestCase
             "shipping_stripe" => 1000,
             "currency" => "usd",
             "tax_percent" => 8.25,
-            "tax_amount_item" => 1.53,
+            "tax_amount_item" => 1.52,
             "tax_amount_shipping" => 0.76,
             "tax_amount_initial_fee" => 0.46,
             "trial_end" => null,

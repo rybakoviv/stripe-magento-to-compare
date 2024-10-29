@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StripeIntegration\Payments\Model;
 
 use StripeIntegration\Payments\Exception\WebhookException;
@@ -11,7 +13,6 @@ class WebhookEvent extends \Magento\Framework\Model\AbstractModel
     private $stdEvent;
     private $dateTime;
     private $config;
-    private $defaultStripeClient;
     private $webhooksHelper;
     private $resourceModel;
     private $orderHelper;
@@ -32,7 +33,6 @@ class WebhookEvent extends \Magento\Framework\Model\AbstractModel
         $this->webhooksHelper = $webhooksHelper;
         $this->config = $config;
         $this->dateTime = $dateTime;
-        $this->defaultStripeClient = $config->getStripeClient();
         $this->resourceModel = $resourceModel;
 
         parent::__construct($context, $registry, $resource, $resourceCollection, $data);
@@ -247,7 +247,7 @@ class WebhookEvent extends \Magento\Framework\Model\AbstractModel
 
         foreach ($keys as $secretKey => $publicKey)
         {
-            $this->config->initStripeFromSecretKey($secretKey);
+            $this->config->reInitStripeFromSecretKey($secretKey);
 
             try
             {

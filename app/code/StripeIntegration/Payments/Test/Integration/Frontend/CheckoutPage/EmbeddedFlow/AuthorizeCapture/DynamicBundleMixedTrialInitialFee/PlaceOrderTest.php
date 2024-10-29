@@ -57,14 +57,15 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals(0.99, $trialSubscriptionsConfig["tax_amount_initial_fee"], "Initial Fee Tax");
         $this->assertEquals(0.99, $trialSubscriptionsConfig["base_tax_amount_initial_fee"], "Base Initial Fee Tax");
 
-        // 2 bundle products x $1.65 (8.25% tax on $40)
-        $this->assertEquals(3.3, $trialSubscriptionsConfig["tax_total"], "Tax");
-        $this->assertEquals(3.3, $trialSubscriptionsConfig["tax_total"], "Base Tax");
+        // 2 bundle products x $1.65 (8.25% tax on $40) + initial fee ($3 * 4 at 8.25% = 0.99)
+        $this->assertEquals(4.29, $trialSubscriptionsConfig["tax_total"], "Tax");
+        $this->assertEquals(4.29, $trialSubscriptionsConfig["tax_total"], "Base Tax");
 
         // Place the order
         $order = $this->quote->placeOrder();
 
-        $this->assertEquals(66.29, $order->getGrandTotal());
+        $initialFee = $trialSubscriptionsConfig["initial_fee"] + $trialSubscriptionsConfig["tax_amount_initial_fee"];
+        $this->assertEquals($initialFee, $order->getGrandTotal());
         $paymentIntent = $this->tests->confirmSubscription($order);
 
         // Refresh the order object
@@ -87,8 +88,14 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertCount(1, $customer->subscriptions->data);
         $subscription = $customer->subscriptions->data[0];
         $this->assertEquals("trialing", $subscription->status);
-        $trialSubscriptionTotal = round(floatval($order->getGrandTotal()) - $trialSubscriptionsConfig["initial_fee"] - $trialSubscriptionsConfig["tax_amount_initial_fee"], 2);
-        $expectedChargeAmount = $order->getGrandTotal() - $trialSubscriptionTotal;
+        // The subscription plan should include the subscription price + shipping + tax on these 2 prices.
+        // It should not include the initial fee and tax for initial fee, so we will take out the
+        // initial fee tax amount from the expected total
+        $trialSubscriptionTotal = round($trialSubscriptionsConfig["subscriptions_total"]
+            + $trialSubscriptionsConfig["shipping_total"]
+            + $trialSubscriptionsConfig["tax_total"], 2)
+            - $trialSubscriptionsConfig["tax_amount_initial_fee"];
+        $expectedChargeAmount = $initialFee;
         $expectedChargeAmountStripe = $this->tests->helper()->convertMagentoAmountToStripeAmount($expectedChargeAmount, $currency);
         $trialSubscriptionTotalStripe = $this->tests->helper()->convertMagentoAmountToStripeAmount($trialSubscriptionTotal, $currency);
         $this->assertEquals($trialSubscriptionTotalStripe, $subscription->plan->amount);
@@ -108,16 +115,14 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
             "status" => "processing",
             "total_due" => 0,
             "total_paid" => $order->getGrandTotal(),
-            "total_refunded" => $trialSubscriptionTotal
+            "total_refunded" => 0
         ]);
         $this->assertEquals(1, $order->getInvoiceCollection()->getSize());
         $invoice = $order->getInvoiceCollection()->getFirstItem();
         $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
 
         // Credit memos check
-        $this->assertEquals(1, $order->getCreditmemosCollection()->getSize());
-        $creditmemo = $order->getCreditmemosCollection()->getFirstItem();
-        $this->assertEquals($trialSubscriptionTotal, $creditmemo->getGrandTotal());
+        $this->assertEquals(0, $order->getCreditmemosCollection()->getSize());
 
         // End the trial
         $this->tests->endTrialSubscription($subscriptionId);

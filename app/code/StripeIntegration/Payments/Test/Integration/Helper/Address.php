@@ -188,6 +188,18 @@ class Address
                     'firstname' => 'Nihonjin',
                     'email' => 'shimei@example.com'
                 ];
+            case 'Romania':
+                return [
+                    'telephone' => "+40765197405",
+                    'postcode' => "010068",
+                    'country_id' => 'RO',
+                    'region_id' => $this->getRegionId("RO", "CJ"),
+                    'city' => 'Bucharest',
+                    'street' => ['89 Victoriei'],
+                    'lastname' => 'Popescu',
+                    'firstname' => 'Ion',
+                    'email' => 'popescu@example.com'
+                ];
             default:
                 throw new \Exception("No such address $identifier");
         }

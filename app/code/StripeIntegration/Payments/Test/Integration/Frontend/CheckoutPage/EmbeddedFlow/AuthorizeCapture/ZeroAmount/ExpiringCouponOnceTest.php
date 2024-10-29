@@ -67,40 +67,44 @@ class ExpiringCouponOnceTest extends \PHPUnit\Framework\TestCase
             "metadata" => [
                 "Order #" => $order->getIncrementId()
             ],
-            "status" => "trialing"
+            "status" => "trialing",
+            "discount" => [
+                "coupon" => [
+                    "amount_off" => 109,
+                    "duration" => "repeating",
+                    "duration_in_months" => 1,
+                    "name" => "$1.09 Discount",
+                ]
+            ],
         ]);
 
-        //Customer has no charges
+        // Customer has no charges
         $charges = $this->tests->stripe()->charges->all(['customer' => $customerId]);
         $this->assertCount(0, $charges->data);
 
-        //upcoming invoice for subscription
+        // Upcoming invoice for subscription
         $upcomingInvoice = $this->tests->stripe()->invoices->upcoming(['customer' => $customer->id]);
 
-        //Upcoming invoice has a discount and due amount is discounted (same as order grand total)
+        // Upcoming invoice has a discount and due amount is discounted (same as order grand total)
         $this->assertNotNull($upcomingInvoice->discount);
         $this->compare->object($upcomingInvoice, [
-            "amount_due" => $order->getGrandTotal() * 100,  //discounted amount
+            "amount_due" => 974, // Discounted amount
             "amount_paid" => 0,
-            "amount_remaining" => $order->getGrandTotal() * 100,
-            "total" => $order->getGrandTotal() * 100
+            "amount_remaining" => 974,
+            "total" => 974
         ]);
 
-        // Check that the subscription has an expiring discount
-        $this->assertNotNull($customer->subscriptions->data[0]->discount);
-        $this->assertEquals($customer->subscriptions->data[0]->discount->coupon->duration, 'once');
-
         // State of order is proper.
-        $this->assertEquals("closed", $order->getState());
-        $this->assertEquals("closed", $order->getStatus());
+        $this->assertEquals("complete", $order->getState());
+        $this->assertEquals("complete", $order->getStatus());
 
         $invoice = $this->tests->stripe()->invoices->retrieve($customer->subscriptions->data[0]->latest_invoice);
         $this->tests->event()->trigger("invoice.payment_succeeded", $invoice, ['billing_reason' => 'subscription_cycle']);
 
-        //Order has invoice in paid status
+        // Order has invoice in paid status
         $this->assertEquals($order->getInvoiceCollection()->getFirstItem()->getState(), Invoice::STATE_PAID);
 
-        //Order has Credit Memo for full amount
-        $this->assertEquals($order->getCreditmemosCollection()->getFirstItem()->getGrandTotal(), $order->getInvoiceCollection()->getFirstItem()->getGrandTotal());
+        // Order has no credit memos
+        $this->assertCount(0, $order->getCreditmemosCollection());
     }
 }

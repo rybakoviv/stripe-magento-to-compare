@@ -16,6 +16,7 @@ class Subscriptions extends \Magento\Framework\View\Element\Template
     private $subscriptionFactory;
     private $canceledSubscriptionsHtml;
     private $subscriptionCollectionFactory;
+    private $productHelper;
 
     public function __construct(
         \Magento\Framework\View\Element\Template\Context $context,
@@ -24,6 +25,7 @@ class Subscriptions extends \Magento\Framework\View\Element\Template
         \StripeIntegration\Payments\Helper\Generic $helper,
         \StripeIntegration\Payments\Helper\PaymentMethod $paymentMethodHelper,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptionsHelper,
+        \StripeIntegration\Payments\Helper\Product $productHelper,
         array $data = []
     ) {
         $this->subscriptionFactory = $subscriptionFactory;
@@ -32,6 +34,7 @@ class Subscriptions extends \Magento\Framework\View\Element\Template
         $this->helper = $helper;
         $this->paymentMethodHelper = $paymentMethodHelper;
         $this->subscriptionsHelper = $subscriptionsHelper;
+        $this->productHelper = $productHelper;
 
         parent::__construct($context, $data);
     }
@@ -115,7 +118,7 @@ class Subscriptions extends \Magento\Framework\View\Element\Template
                 if ($subscription->status != 'canceled')
                     continue;
 
-                if (!in_array($subscription->id, $reactivatedSubscriptions) && $this->checkProductIsSaleable($subscription))
+                if (!in_array($subscription->id, $reactivatedSubscriptions) && $this->checkProductIsSalable($subscription))
                 {
                     $canceledSubscriptions[$subscription->id] = $subscription;
 
@@ -222,7 +225,7 @@ class Subscriptions extends \Magento\Framework\View\Element\Template
         return $this->subscriptionModels[$subscription->id];
     }
 
-    protected function checkProductIsSaleable($subscription)
+    protected function checkProductIsSalable($subscription)
     {
         $productIDs = [];
 
@@ -235,17 +238,22 @@ class Subscriptions extends \Magento\Framework\View\Element\Template
             $productIDs = explode(",", $subscription->metadata->{"SubscriptionProductIDs"});
         }
 
-        if (!empty($productIDs)) {
-            foreach ($productIDs as $productId) {
-                $product = $this->helper->loadProductById($productId);
-                if ($product && $product->getIsSalable()) {
-                    return true;
-                } else {
-                    return false;
-                }
-            }
+        if (empty($productIDs))
+        {
+            return false;
         }
 
-        return false;
+        foreach ($productIDs as $productId)
+        {
+            try
+            {
+                $product = $this->productHelper->getProduct($productId);
+                return $product->getIsSalable();
+            }
+            catch (\Exception $e)
+            {
+                return false;
+            }
+        }
     }
 }

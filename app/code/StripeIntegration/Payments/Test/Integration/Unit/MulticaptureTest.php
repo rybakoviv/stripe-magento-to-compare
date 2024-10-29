@@ -9,14 +9,10 @@ namespace StripeIntegration\Payments\Test\Integration\Unit;
  */
 class MulticaptureTest extends \PHPUnit\Framework\TestCase
 {
-    private $objectManager;
-    private $quote;
     private $tests;
 
     public function setUp(): void
     {
-        $this->objectManager = \Magento\TestFramework\ObjectManager::getInstance();
-        $this->quote = new \StripeIntegration\Payments\Test\Integration\Helper\Quote();
         $this->tests = new \StripeIntegration\Payments\Test\Integration\Helper\Tests($this);
     }
 

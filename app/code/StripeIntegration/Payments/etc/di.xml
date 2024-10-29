@@ -180,6 +180,22 @@
         </arguments>
     </type>
 
+    <type name="Magento\Quote\Model\QuoteManagement">
+        <plugin name="stripe_payments_quote_management" type="StripeIntegration\Payments\Plugin\Quote\QuoteManagement" />
+    </type>
+
+    <type name="Magento\Quote\Model\Quote\Address\Total\Shipping">
+        <plugin name="stripe_payments_trial_subscription_shipping_total" type="StripeIntegration\Payments\Plugin\Quote\AddressShippingTotal" />
+    </type>
+
+    <type name="Magento\Payment\Model\Checks\ZeroTotal">
+        <plugin name="stripe_payments_zero_total_check" type="StripeIntegration\Payments\Plugin\Validations\ZeroTotalCheck" />
+    </type>
+
+    <type name="Magento\SalesRule\Model\Coupon\Quote\UpdateCouponUsages">
+        <plugin name="stripe_update_coupon_usages_plugin" type="StripeIntegration\Payments\Plugin\SalesRule\UpdateCouponUsagesPlugin" sortOrder="10"/>
+    </type>
+
     <preference for="StripeIntegration\Payments\Api\ServiceInterface" type="StripeIntegration\Payments\Api\Service" />
     <preference for="StripeIntegration\Payments\Api\PaymentMethodOptionsServiceInterface" type="StripeIntegration\Payments\Service\PaymentMethodOptionsService"/>
 
@@ -236,6 +252,9 @@
     </type>
     <type name="Magento\Sales\Model\ResourceModel\Order\Collection">
         <plugin name="setInitialFeeExtensionAfterLoad" type="StripeIntegration\Payments\Plugin\Order\LoadInitialFeeOnCollection" sortOrder="30"/>
+    </type>
+    <type name="Magento\Quote\Model\Quote\Item\ToOrderItem">
+        <plugin name="addInitalFeeToOrderItem" type="StripeIntegration\Payments\Plugin\Quote\QuoteItemToOrderItem" sortOrder="30"/>
     </type>
 
     <!-- Disable manual invoice capturing -->
@@ -320,6 +339,10 @@
     <!-- Before add to cart validations -->
     <type name="Magento\Quote\Model\Quote">
         <plugin name="stripeBeforeAddToCartValidations" type="StripeIntegration\Payments\Plugin\Cart\BeforeAddToCart" sortOrder="7"/>
+        <plugin name="stripeBeforeQuoteSave" type="StripeIntegration\Payments\Plugin\Quote\BeforeSave" sortOrder="7"/>
+    </type>
+    <type name="Magento\Quote\Api\CartRepositoryInterface">
+        <plugin name="stripeBeforeCartRepositorySave" type="StripeIntegration\Payments\Plugin\CartRepository\BeforeSave" sortOrder="7"/>
     </type>
 
     <!-- Handlers -->
@@ -362,6 +385,7 @@
             <argument name="columns" xsi:type="array">
                 <item name="stripe_radar_risk_score" xsi:type="string">sales_order.stripe_radar_risk_score</item>
                 <item name="stripe_radar_risk_level" xsi:type="string">sales_order.stripe_radar_risk_level</item>
+                <item name="stripe_payment_method_type" xsi:type="string">sales_order.stripe_payment_method_type</item>
             </argument>
         </arguments>
     </virtualType>

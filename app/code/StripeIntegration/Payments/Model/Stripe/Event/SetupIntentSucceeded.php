@@ -2,7 +2,6 @@
 
 namespace StripeIntegration\Payments\Model\Stripe\Event;
 
-use StripeIntegration\Payments\Exception\LocalizedException;
 use StripeIntegration\Payments\Exception\GenericException;
 use StripeIntegration\Payments\Exception\MissingOrderException;
 use StripeIntegration\Payments\Model\Stripe\StripeObjectTrait;
@@ -72,6 +71,14 @@ class SetupIntentSucceeded
             return $this->setupDelayedSubscription($setupIntentModel->getStripeObject(), $order);
         }
 
+        if ($order->getPayment()->getAdditionalInformation("payment_action") == "order")
+        {
+            $setupIntent = $this->config->getStripeClient()->setupIntents->retrieve($object['id']);
+            $this->paymentIntentModel->processSuccessfulOrder($order, $setupIntent);
+            $this->helper->setProcessingState($order, __("The payment method has been authenticated and saved."));
+            $this->orderHelper->saveOrder($order);
+        }
+
         return $this->updateTrialSubscriptionMetadata($object['id'], $order, $object);
     }
 
@@ -132,7 +139,7 @@ class SetupIntentSucceeded
 
         $this->customerModel->fromStripeCustomerId($setupIntent->customer);
         $order->getPayment()->setAdditionalInformation("token", $setupIntent->payment_method);
-        $params = $this->paymentIntentModel->getParamsFrom($quote, $order);
+        $params = $this->paymentIntentModel->getParamsFrom($order);
         /** @var \Stripe\Subscription $subscription */
         $subscription = $this->subscriptionsHelper->updateSubscriptionFromOrder($order, null, $params);
         if (!empty($subscription->id))

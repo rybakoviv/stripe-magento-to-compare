@@ -71,29 +71,14 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $paymentMethod = $this->tests->loadPaymentMethod($order->getId());
         $this->assertEquals('', $paymentMethod->getPaymentMethodType());
 
-        if ($this->tests->magento("<", "2.4") || $this->tests->magento(">=", "2.4.6"))
-        {
-            $state = "closed";
-            $status = "closed";
-        }
-        else
-        {
-            // In v3.2.8 we create a pending invoice and do not refund the order
-            // In v3.4.x we invoice & refund the order
-            // The free product is virtual and the trial subscription amount was refunded, so there is no need to ship any items
-            // Magento marks the order as closed, ideally it should be complete because the free item has not been refunded
-            $state = "complete";
-            $status = "closed";
-        }
-        $this->assertEquals($state, $order->getState());
-        $this->assertEquals($status, $order->getStatus());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalRefunded());
+        $this->assertEquals("complete", $order->getState());
+        $this->assertEquals("complete", $order->getStatus());
+        $this->assertEquals(0, $order->getGrandTotal());
 
         // Check that an invoice was created
         $invoicesCollection = $order->getInvoiceCollection();
         $this->assertEquals(1, $invoicesCollection->getSize());
-        $this->assertEquals(1, $order->getCreditmemosCollection()->getSize());
+        $this->assertEquals(0, $order->getCreditmemosCollection()->getSize());
 
         // End the trial
         $subscription = $this->tests->endTrialSubscription($subscriptionId);
@@ -102,28 +87,24 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals($ordersCount + 1, $newOrdersCount);
 
         // Refresh the order object
-        $order = $this->tests->refreshOrder($order);
-        $this->tests->compare($order->debug(), [
-            'state' => $state,
-            'status' => $status,
-            'total_paid' => $order->getGrandTotal(),
-            'total_refunded' => $order->getGrandTotal()
+        $newOrder = $this->tests->getLastOrder();
+        $this->assertNotEquals($order->getIncrementId(), $newOrder->getIncrementId());
+        $this->tests->compare($newOrder->debug(), [
+            'state' => "complete",
+            'status' => "complete",
+            "grand_total" => 10.83,
+            'total_paid' => $newOrder->getGrandTotal(),
+            'total_refunded' => "unset"
         ]);
 
-        // Check that an invoice was created
-        $invoicesCollection = $order->getInvoiceCollection();
+        $invoicesCollection = $newOrder->getInvoiceCollection();
         $this->assertNotEmpty($invoicesCollection);
         $this->assertEquals(1, $invoicesCollection->getSize());
 
         $invoice = $invoicesCollection->getFirstItem();
-
-        $this->assertEquals(2, count($invoice->getAllItems()));
+        $this->assertEquals(1, count($invoice->getAllItems()));
         $this->assertEquals(\Magento\Sales\Model\Order\Invoice::STATE_PAID, $invoice->getState());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalPaid());
-        $this->assertEquals($order->getGrandTotal(), $order->getTotalRefunded());
 
-        // Check the newly created order
-        $newOrder = $this->tests->getLastOrder();
         $transactions = $this->helper->getOrderTransactions($newOrder);
         $this->assertEquals(1, count($transactions));
         foreach ($transactions as $key => $transaction)
@@ -131,11 +112,5 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
             $this->assertEquals("capture", $transaction->getTxnType());
             $this->assertEmpty($transaction->getAdditionalInformation("amount"));
         }
-        $this->assertNotEquals($order->getIncrementId(), $newOrder->getIncrementId());
-        $this->assertEquals("complete", $newOrder->getState());
-        $this->assertEquals("complete", $newOrder->getStatus());
-        $this->assertEquals(10.83, $newOrder->getGrandTotal());
-        $this->assertEquals($newOrder->getGrandTotal(), $newOrder->getTotalPaid());
-        $this->assertEquals(1, $newOrder->getInvoiceCollection()->getSize());
     }
 }

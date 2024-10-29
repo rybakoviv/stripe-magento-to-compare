@@ -40,26 +40,30 @@ class SubscriptionOptions extends \Magento\Framework\Model\AbstractModel impleme
 
     public function getProrateUpgrades()
     {
-        if ($this->getProrateUpgradesUseConfig())
-        {
-            return $this->getConfig()->getConfigData("prorations_upgrades", "subscriptions");
-        }
-        else
-        {
-            return $this->getData("prorate_upgrades");
-        }
+        return false; // Prorated subscription updates are temporarily disabled in v4.1
+
+        // if ($this->getProrateUpgradesUseConfig())
+        // {
+        //     return $this->getConfig()->getConfigData("prorations_upgrades", "subscriptions");
+        // }
+        // else
+        // {
+        //     return $this->getData("prorate_upgrades");
+        // }
     }
 
     public function getProrateDowngrades()
     {
-        if ($this->getProrateDowngradesUseConfig())
-        {
-            return $this->getConfig()->getConfigData("prorations_downgrades", "subscriptions");
-        }
-        else
-        {
-            return $this->getData("prorate_downgrades");
-        }
+        return false; // Prorated subscription updates are temporarily disabled in v4.1
+
+        // if ($this->getProrateDowngradesUseConfig())
+        // {
+        //     return $this->getConfig()->getConfigData("prorations_downgrades", "subscriptions");
+        // }
+        // else
+        // {
+        //     return $this->getData("prorate_downgrades");
+        // }
     }
 
     protected function getConfig()

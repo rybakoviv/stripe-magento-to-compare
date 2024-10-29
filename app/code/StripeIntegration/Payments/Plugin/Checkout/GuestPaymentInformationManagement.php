@@ -9,7 +9,6 @@ class GuestPaymentInformationManagement
     public function __construct(
         \StripeIntegration\Payments\Model\CheckoutSession $checkoutSessionModel
     ) {
-
         $this->checkoutSessionModel = $checkoutSessionModel;
     }
 

@@ -7,7 +7,6 @@ class OrderService
     private $helper;
     private $subscriptionsHelper;
     private $config;
-    private $creditmemoHelper;
     private $helperFactory;
     private $quoteHelper;
     private $subscriptionsFactory;
@@ -15,27 +14,31 @@ class OrderService
     private $paymentMethodHelper;
     private $loggerHelper;
     private $orderHelper;
+    private $updateCouponUsages;
+    private $checkoutFlow;
 
     public function __construct(
+        \Magento\SalesRule\Model\Coupon\Quote\UpdateCouponUsages $updateCouponUsages,
         \StripeIntegration\Payments\Helper\Quote $quoteHelper,
         \StripeIntegration\Payments\Helper\Order $orderHelper,
         \StripeIntegration\Payments\Helper\GenericFactory $helperFactory,
         \StripeIntegration\Payments\Helper\SubscriptionsFactory $subscriptionsFactory,
-        \StripeIntegration\Payments\Helper\Creditmemo $creditmemoHelper,
         \StripeIntegration\Payments\Helper\PaymentMethod $paymentMethodHelper,
         \StripeIntegration\Payments\Helper\Logger $loggerHelper,
         \StripeIntegration\Payments\Model\Config $config,
+        \StripeIntegration\Payments\Model\Checkout\Flow $checkoutFlow,
         \StripeIntegration\Payments\Model\ResourceModel\WebhookEvent\CollectionFactory $webhookEventCollectionFactory
 
     ) {
+        $this->updateCouponUsages = $updateCouponUsages;
         $this->quoteHelper = $quoteHelper;
         $this->orderHelper = $orderHelper;
         $this->helperFactory = $helperFactory;
         $this->subscriptionsFactory = $subscriptionsFactory;
-        $this->creditmemoHelper = $creditmemoHelper;
         $this->paymentMethodHelper = $paymentMethodHelper;
         $this->loggerHelper = $loggerHelper;
         $this->config = $config;
+        $this->checkoutFlow = $checkoutFlow;
         $this->webhookEventCollectionFactory = $webhookEventCollectionFactory;
     }
 
@@ -46,10 +49,16 @@ class OrderService
             if (!empty($order) && !empty($order->getQuoteId()))
             {
                 $this->quoteHelper->quoteId = $order->getQuoteId();
+                $quote = $this->quoteHelper->loadQuoteById($order->getQuoteId());
+            }
+            else
+            {
+                $quote = $this->quoteHelper->getQuote();
             }
 
             $savedOrder = $proceed($order);
 
+            $this->incrementCouponUsages($quote);
             return $this->postProcess($savedOrder);
         }
         catch (\Exception $e)
@@ -64,13 +73,30 @@ class OrderService
         }
     }
 
+    public function incrementCouponUsages($quote)
+    {
+        if (!$quote->getCouponCode())
+        {
+            return;
+        }
+
+        if ($this->checkoutFlow->shouldIncrementCouponUsage)
+        {
+            return;
+        }
+
+        $this->checkoutFlow->shouldIncrementCouponUsage = true;
+        $this->updateCouponUsages->execute($quote, true);
+    }
+
     public function postProcess($order)
     {
         $helper = $this->getHelper();
         switch ($order->getPayment()->getMethod())
         {
             case "stripe_payments_bank_transfers":
-                $this->paymentMethodHelper->savePaymentMethod($order->getId(), "customer_balance", null);
+                $this->paymentMethodHelper->savePaymentMethod($order, "customer_balance", null);
+                $this->orderHelper->saveOrder($order);
                 break;
             case "stripe_payments_invoice":
                 $comment = __("A payment is pending for this order.");
@@ -99,28 +125,6 @@ class OrderService
                         {
                             $eventModel->refresh()->setLastErrorFromException($e);
                         }
-                    }
-                }
-
-                if ($order->getPayment()->getAdditionalInformation("is_trial_subscription_setup"))
-                {
-                    $this->creditmemoHelper->refundUnderchargedOrder($order, $paid = 0, $currency = strtolower($order->getOrderCurrencyCode()));
-                }
-
-                if ($order->getPayment()->getAdditionalInformation("is_subscription_update"))
-                {
-                    if ($order->getPayment()->getIsTransactionPending())
-                    {
-                        // Prorated downgrade, no price change, or upgrade with credit balance
-                        $this->getHelper()->cancelOrCloseOrder($order);
-                    }
-                    else if ($order->getPayment()->getTransactionId())
-                    {
-                        // Prorated upgrade
-                        $this->getHelper()->invoiceOrder($order, $order->getPayment()->getTransactionId(), \Magento\Sales\Model\Order\Invoice::CAPTURE_OFFLINE, null, true);
-                        $amountPaid = $order->getPayment()->getAdditionalInformation("stripe_invoice_amount_paid");
-                        $currency = $order->getPayment()->getAdditionalInformation("stripe_invoice_currency");
-                        $this->creditmemoHelper->refundUnderchargedOrder($order, $amountPaid, $currency, true);
                     }
                 }
 

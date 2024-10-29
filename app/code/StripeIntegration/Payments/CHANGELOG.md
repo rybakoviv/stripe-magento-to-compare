@@ -1,8 +1,84 @@
 # Changelog
 
+## 4.1.6 - 2024-10-22
+
+- Subscription initial fees are now compatible with the Stripe Tax submodule.
+- Fixed an issue causing some webhook events to not be found across any of the configured Stripe accounts.
+- In Adobe Commerce, if store credit, gift cards or reward points were used, Link would appear even if it was disabled.
+- Improvements with subscription recurring order creation logic.
+
+## 4.1.5 - 2024-10-16
+
+- Added `resources/cookbooks/` directory with 5 examples of common module customizations.
+- Added various new validations for actions in the My Subscriptions section.
+- Fixed two issues with subscription initial fee taxes.
+- Fixed an issue where in certain checkout flows, the shipping rate of a placed order would be different than the one selected at the checkout.
+- Some CSS fixes with Express Checkout on bundle product pages.
+
+## 4.1.4 - 2024-10-14
+
+- Fixed issue with subscription start dates where if bought on the exact start date, the order's grand total would be zero instead of fully paid.
+- Added html escaping to various templates.
+
+## 4.1.3 - 2024-10-09
+
+- Express Checkout is now supported on bundle product pages.
+- Added MB WAY payment method icons.
+- Moved API examples directory under resources/, added new resources/docs/ directory with current version documentation.
+- Stricter validations when invoicing admin orders.
+- Fixed an issue where after a redirect-based method payment failure, the order would be canceled but not disassociated from the payment intent.
+- Fixed a subscriptions issue where the shipping method would be unavailable if a minimum amount is specified for that method's availability.
+
+## 4.1.2 - 2024-09-25
+
+- Subscriptions can now be purchased with 100% discount coupons/rules.
+- Fixed a checkout error with Hyva Checkout.
+- Fixed Link not being disabled on product pages when its disabled from the admin.
+- Fixed an obscured error message at the My Payment Methods section.
+- Payment method validation improvements.
+
+## 4.1.1 - 2024-09-20
+
+- Various fixes and improvements with Stripe Checkout (redirect-based payment flow).
+- Added a new configuration option in etc/config.xml to control if coupon usages are incremented before or after the order is placed.
+- Fixed a tax inclusive issue where Klarna and Google Pay would display the tax exclusive amount instead of the tax inclusive one at the checkout page.
+- Fixed error 'The requested qty is not available' affecting bundle products with a Qty of 1, when using Express Checkout.
+- Fixed a case where if a subscription payment failed, and the subscription payment method was updated, a recurring order would not be created for the newly collected payment.
+- Fixed an issue where reactivating a canceled subscription after payment failure, would enter a trial period instead of collecting a new payment.
+- Fixed an issue where printing PDF shipment documents for Stripe Checkout would add escaped html under the payment info section of the shipping document.
+- When migrating a subscription using the CLI command stripe:subscriptions:migrate-subscription-price, the newly generated order will no longer reserve order item inventory.
+- Fixed an issue with wallets not appearing in the shopping cart page when certain plugin interceptiors are implemented.
+- Fixed several cases where Web API errors that should be displayed at the front-end would be masked in production mode.
+
+## 4.1.0 - 2024-09-10
+
+- Added support for Stripe Tax.
+- Orders for subscriptions with trial periods, start dates, as well as subscription upgrades/downgrades, will be placed with a grand total of 0 to reflect that no payment has been collected. Recurring subscription orders will be placed with a grand total reflecting the collected payment.
+- To better support Stripe Tax, prorated subscription upgrades/downgrades have been temporarily disabled. Only regular subscription upgrades/downgrades are currently supported.
+
+## 4.0.11 - 2024-09-05
+
+- Fixed the "Save payment method" checkbox in the admin new order page.
+- Fixed a javascript crash in the admin new order page.
+
+## 4.0.10 - 2024-08-28
+
+- Fixed a product loading error happening in certain edge cases.
+- Fixed a CSP policy issue in the admin area.
+- Fixed a setup:upgrade issue happening when other modules set the area code.
+
+## 4.0.9 - 2024-08-20
+
+- PayPal can now be saved as a payment method similar to cards.
+- Enabled partial refunds for the Bank Transfers payment method.
+- Fixed order search filters at the sales orders grid. You can search for orders using queries such as "mastercard", "google pay", "klarna" etc.
+- Fixed a bug with Express Checkout Element where if the shipping rate is changed, the total would not update in the payment modal.
+- Fixed two issues with 'Payment Action = Order' mode, affecting redirect-based payment methods, where the payment method would fail to be saved.
+- Fixed a 3D Secure issue with coupon usage increments.
+
 ## 4.0.8 - 2024-07-05
 
-- In 4 scenarios where saved payment methods are disabled but the PM needs to be saved, the customer would not see the saved PM dropdown at the checkout (affects 4.0.2 - 4.0.7). All 4 cases will now display the dropdown.
+- In four scenarios where saved payment methods are disabled but the PM needs to be saved, the customer would not see the saved PM dropdown at the checkout (affects 4.0.2 - 4.0.7). All four cases will now display the dropdown.
 - Added safety checks so that payment method deduplication is skipped when there are pending orders placed with the duplicate payment method.
 - Improved error handling when there are no available payment element methods for the given cart amount.
 - Added new validations during order placements to handle checkout crashes.

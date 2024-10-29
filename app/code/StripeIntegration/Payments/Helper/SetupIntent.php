@@ -148,7 +148,7 @@ class SetupIntent
     {
         $remoteAddress = $this->remoteAddress->getRemoteAddress();
         $userAgent = $this->httpHeader->getHttpUserAgent();
-        $unsupportedMethods = ['afterpay_clearpay', 'paypal', 'blik'];
+        $unsupportedMethods = ['afterpay_clearpay', 'blik'];
 
         if (!$remoteAddress || !$userAgent || empty($paymentMethod->type) || in_array($paymentMethod->type, $unsupportedMethods))
         {

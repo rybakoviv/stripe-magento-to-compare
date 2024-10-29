@@ -51,6 +51,8 @@ class StartDateOnOrderTest extends \PHPUnit\Framework\TestCase
             ->setPaymentMethod("SuccessCard");
 
         $order = $this->quote->placeOrder();
+        $expectedChargeAmount = 31.65;
+        $this->assertEquals($expectedChargeAmount, $order->getGrandTotal());
         $subscription = $this->tests->confirmSubscription($order);
 
         // Refresh the order object
@@ -121,7 +123,7 @@ class StartDateOnOrderTest extends \PHPUnit\Framework\TestCase
         // Make sure that the new order amount is the same
         $recurringOrder = $this->tests->getLastOrder();
         $this->tests->compare($recurringOrder->getData(), [
-            'grand_total' => $order->getGrandTotal()
+            'grand_total' => $expectedChargeAmount
         ]);
     }
 }

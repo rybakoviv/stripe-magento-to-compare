@@ -134,13 +134,12 @@ class Config
         if ($this->sortOrderMethod == "custom")
             $options['paymentMethodOrder'] = $this->paymentMethodOrder;
 
-        if (!$this->isApplePayEnabled || !$this->isGooglePayEnabled)
-        {
-            $options['wallets'] = [
-                'applePay' => $this->isApplePayEnabled ? 'auto' : 'never',
-                'googlePay' => $this->isGooglePayEnabled ? 'auto' : 'never'
-            ];
-        }
+        $options['paymentMethods'] = [
+            'applePay' => $this->isApplePayEnabled ? 'auto' : 'never',
+            'googlePay' => $this->isGooglePayEnabled ? 'auto' : 'never',
+            'link' => $this->isLinkEnabled ? 'auto' : 'never',
+            'paypal' => $this->isPaypalEnabled ? 'auto' : 'never'
+        ];
 
         return $options;
     }

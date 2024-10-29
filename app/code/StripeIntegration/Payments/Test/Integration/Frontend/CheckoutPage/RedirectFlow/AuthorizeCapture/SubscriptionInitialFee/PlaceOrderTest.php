@@ -38,11 +38,9 @@ class PlaceOrderTest extends \PHPUnit\Framework\TestCase
             ->setBillingAddress("Berlin")
             ->setPaymentMethod("StripeCheckout");
 
-        $methods = $this->quote->getAvailablePaymentMethods();
-        $this->tests->assertCheckoutSessionsCountEquals(1);
-
         // Place the order
         $order = $this->quote->placeOrder();
+        $this->tests->assertCheckoutSessionsCountEquals(1);
 
         // Confirm the payment
         $method = "SuccessCard";

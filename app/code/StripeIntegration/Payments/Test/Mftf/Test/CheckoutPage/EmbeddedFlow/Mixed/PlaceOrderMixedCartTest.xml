@@ -38,11 +38,10 @@
         </actionGroup>
 
         <actionGroup ref="FillCardDetailsActionGroup" stepKey="fillPaymentForm">
-            <argument name="CardNumber" value="{{Cards.authenticationRequiredCard}}"/>
+            <argument name="CardNumber" value="{{Cards.successCard}}"/>
         </actionGroup>
 
-        <actionGroup ref="ClickPlaceOrderAuthenticationRequiredActionGroup" stepKey="clickPlaceOrder"/>
-        <actionGroup ref="ClickThreeDSecureActionGroup" stepKey="authorizeExternally" />
+        <actionGroup ref="SkipActionGroup" stepKey="authorizeExternally"/>
 
         <after>
             <deleteData createDataKey="createProduct" stepKey="deleteProduct"/>

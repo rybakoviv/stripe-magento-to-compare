@@ -35,6 +35,7 @@ class CrashTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * @magentoDataFixture ../../../../app/code/StripeIntegration/Payments/Test/Integration/_files/Data/ApiKeysIsolated.php
      * @magentoConfigFixture current_store payment/stripe_payments/payment_flow 0
      * @magentoConfigFixture current_store payment/stripe_payments/payment_action authorize_capture
      */
@@ -126,20 +127,15 @@ class CrashTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals("succeeded", $paymentIntent->status);
 
         MockQuoteManagement::$crashAfterOrderSave = false;
-        $order2 = $this->quote->placeOrder();
-
-        $this->assertNotEquals($order->getId(), $order2->getId());
-        $order = $this->tests->refreshOrder($order);
-
-        $this->tests->compare($order->debug(), [
-            'state' => 'closed',
-            'status' => 'closed'
-        ]);
-
-        $this->assertEmpty($order->getPayment()->getLastTransId());
-        $this->assertEmpty($order->getPayment()->getTransactionId());
-
-        $this->assertEquals($paymentIntentId, $order2->getPayment()->getLastTransId());
+        try
+        {
+            $order2 = $this->quote->placeOrder();
+            $this->assertTrue(false, "The order was placed successfully, whereas it should have crashed.");
+        }
+        catch (\Exception $e)
+        {
+            $this->assertEquals("The order has already been placed and paid.", $e->getMessage());
+        }
     }
 
     /**
@@ -184,7 +180,7 @@ class CrashTest extends \PHPUnit\Framework\TestCase
         try
         {
             $this->quote->placeOrder();
-            $this->assertTrue(false);
+            $this->assertTrue(false, "The order was placed successfully, whereas it should have crashed.");
         }
         catch (\Exception $e)
         {

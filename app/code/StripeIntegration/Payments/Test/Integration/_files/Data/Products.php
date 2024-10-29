@@ -540,6 +540,63 @@ setBundleProductItems($bundleProduct);
 
 // ----------------------------------------------------------------------------
 
+// ----------------------------------------------------------------------------
+
+$bundleProduct = $objectManager->create(\Magento\Catalog\Api\Data\ProductInterface::class);
+$bundleProduct
+    ->setAttributeSetId($defaultAttributeSetId)
+    ->setStoreId($defaultStoreId)
+    ->setWebsiteIds($defaultWebsiteIds)
+    ->setTypeId('bundle')
+    ->setSkuType(0) // 0 - dynamic, 1 - fixed
+    ->setSku('bundle-fixed-no-subscriptions')
+    ->setName('Bundle Fixed No Subscriptions')
+    ->setWeightType(0) // 0 - dynamic, 1 - fixed
+//        ->setWeight(4.0000)
+    ->setShipmentType(0) // 0 - together, 1 - separately
+    ->setStatus(1) // 1 - enabled, 2 - disabled
+    ->setVisibility(\Magento\Catalog\Model\Product\Visibility::VISIBILITY_BOTH)
+    ->setPriceType(1) // 0 - dynamic, 1 - fixed
+    ->setPrice(20)
+    ->setPriceView(0) // 0 - price range, 1 - as low as
+//    ->setSpecialPrice(50) // percentage of original price
+    ->setTaxClassId(2) // 0 - none, 1 - default, 2 - taxable, 4 - shipping
+    ->setStockData(['use_config_manage_stock' => 0]);
+
+// Set bundle product items
+$bundleProduct->setBundleOptionsData(
+    [
+        [
+            'title' => 'Regular Product',
+            'default_title' => 'Regular Product',
+            'type' => 'select',
+            'required' => 0,
+            'delete' => '',
+        ],
+        [
+            'title' => 'Virtual Product',
+            'default_title' => 'Virtual Product',
+            'type' => 'select',
+            'required' => 1,
+            'delete' => '',
+        ]
+    ]
+)->setBundleSelectionsData(
+    [
+        [
+            ['product_id' => $simpleProduct->getId(), 'selection_qty' => 1, 'selection_can_change_qty' => 1, 'delete' => '', 'selection_price_type' => 0, 'price' => 20],
+            ['product_id' => $virtualProduct->getId(), 'selection_qty' => 1, 'selection_can_change_qty' => 1, 'delete' => '', 'selection_price_type' => 0, 'price' => 20],
+            ['product_id' => $freeProduct->getId(), 'selection_qty' => 1, 'selection_can_change_qty' => 1, 'delete' => '', 'selection_price_type' => 0, 'price' => 0],
+        ],
+        [
+            ['product_id' => $virtualProduct->getId(), 'selection_qty' => 1, 'selection_can_change_qty' => 1, 'delete' => '', 'selection_price_type' => 0, 'price' => 20],
+        ],
+    ]
+);
+setBundleProductItems($bundleProduct);
+
+// ----------------------------------------------------------------------------
+
 // Create the configurable product
 $product = $productInterfaceFactory->create();
 $product->setTypeId("configurable")

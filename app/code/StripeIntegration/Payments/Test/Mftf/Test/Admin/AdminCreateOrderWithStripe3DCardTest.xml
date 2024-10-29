@@ -33,7 +33,7 @@
         <actionGroup ref="OrderSelectFlatRateShippingActionGroup" stepKey="orderSelectFlatRateShippingMethod"/>
         <actionGroup ref="AdminSelectStripePaymentMethodActionGroup" stepKey="selectPaymentMethod"/>
         <actionGroup ref="AdminFillCardDetailsActionGroup" stepKey="fillCardDetails">
-            <argument name="CardNumber" value="{{Cards.authenticationRequiredCard}}"/>
+            <argument name="CardNumber" value="{{Cards.authenticationRequiredCard1}}"/>
         </actionGroup>
         <actionGroup ref="AdminStripeSubmitOrderActionGroup" stepKey="submitOrder"/>
         <actionGroup ref="VerifyCreatedOrderResponseMessageActionGroup" stepKey="verifyCreatedOrderResponseMessage"/>

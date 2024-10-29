@@ -38,7 +38,7 @@ class SubscriptionPriceCommandCouponTest extends \PHPUnit\Framework\TestCase
         ];
 
         $subscriptionProductToMigrate = $this->tests->helper()->loadProductBySku("simple-monthly-subscription-product");
-        $oldGrandTotal = 15.83; // Includes the subscription initial fee
+        $oldGrandTotal = 29.49; // 2 * 9 * 1.0825 (subscription product and tax) + 10 (shipping)
         $newGrandTotal = 21.65; // Does not include the initial fee
 
         $this->quote->create()
@@ -52,7 +52,7 @@ class SubscriptionPriceCommandCouponTest extends \PHPUnit\Framework\TestCase
 
         $order = $this->quote->placeOrder();
         $paymentIntent = $this->tests->confirmSubscription($order);
-        $this->assertEquals($order->getGrandTotal($oldGrandTotal), $order->getGrandTotal());
+        $this->assertEquals($oldGrandTotal, $order->getGrandTotal());
 
         // Refresh the order
         $order = $this->tests->refreshOrder($order);

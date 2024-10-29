@@ -368,6 +368,16 @@ class Quote
                 $this->addProduct('simple-product', 2);
                 break;
 
+            case 'Simple':
+                $this->addProduct('simple-product', 2);
+                break;
+
+            case 'ThreePartialCreditMemos':
+                $this->addProduct('configurable-product', 1, [["tests_product_type" => "simple"]]);
+                $this->addProduct('virtual-product', 1);
+                $this->addProduct('bundle-fixed-no-subscriptions', 1, ["simple-product" => 2, "virtual-product" => 2]);
+                break;
+
             default:
                 break;
         }
@@ -497,7 +507,8 @@ class Quote
 
     public function placeOrder()
     {
-        $this->quote->collectTotals()->save();
+        $this->reCollectTotals($this->quote);
+        $this->quote->save();
 
         if (!$this->quote->getCustomerEmail() && $this->customerEmail) // Magento 2.3
             $this->quote->setCustomerEmail($this->customerEmail);
@@ -546,5 +557,25 @@ class Quote
     public function getStore()
     {
         return $this->store;
+    }
+
+    public function reCollectTotals($quote)
+    {
+        $quote->getBillingAddress()->unsetData('cached_items_all');
+        $quote->getBillingAddress()->unsetData('cached_items_nominal');
+        $quote->getBillingAddress()->unsetData('cached_items_nonnominal');
+        if (!$quote->getIsVirtual())
+        {
+            $quote->getShippingAddress()->unsetData('cached_items_all');
+            $quote->getShippingAddress()->unsetData('cached_items_nominal');
+            $quote->getShippingAddress()->unsetData('cached_items_nonnominal');
+        }
+        foreach ($quote->getAllItems() as $item)
+        {
+            $item->setTaxCalculationPrice(null);
+            $item->setBaseTaxCalculationPrice(null);
+        }
+        $quote->setTotalsCollectedFlag(false);
+        $quote->collectTotals();
     }
 }

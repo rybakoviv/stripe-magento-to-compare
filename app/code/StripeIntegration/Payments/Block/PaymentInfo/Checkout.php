@@ -21,10 +21,14 @@ class Checkout extends \Magento\Payment\Block\ConfigurableInfo
     private $paymentIntent;
     private $paymentMethod;
     private $tokenHelper;
+    private $request;
+    private $areaCodeHelper;
 
     public function __construct(
         \Magento\Framework\View\Element\Template\Context $context,
         \Magento\Payment\Gateway\ConfigInterface $config,
+        \Magento\Framework\App\RequestInterface $request,
+        \StripeIntegration\Payments\Helper\AreaCode $areaCodeHelper,
         \StripeIntegration\Payments\Helper\Generic $helper,
         \StripeIntegration\Payments\Helper\PaymentMethod $paymentMethodHelper,
         \StripeIntegration\Payments\Helper\Subscriptions $subscriptions,
@@ -36,6 +40,8 @@ class Checkout extends \Magento\Payment\Block\ConfigurableInfo
     ) {
         parent::__construct($context, $config, $data);
 
+        $this->request = $request;
+        $this->areaCodeHelper = $areaCodeHelper;
         $this->helper = $helper;
         $this->subscriptions = $subscriptions;
         $this->api = $api;
@@ -52,10 +58,26 @@ class Checkout extends \Magento\Payment\Block\ConfigurableInfo
         if (!$this->paymentsConfig->getStripeClient())
             return null;
 
+        if (!$this->isAllowedAction())
+            return 'paymentInfo/generic.phtml';
+
         if ($info && $info->getAdditionalInformation("is_subscription_update"))
             return 'paymentInfo/subscription_update.phtml';
 
         return 'paymentInfo/checkout.phtml';
+    }
+
+    public function isAllowedAction()
+    {
+        if (!$this->areaCodeHelper->isAdmin())
+            return true;
+
+        $allowedAdminActions = ["view", "new", "email"];
+        $action = $this->request->getActionName();
+        if (in_array($action, $allowedAdminActions))
+            return true;
+
+        return false;
     }
 
     public function getFormattedAmount()

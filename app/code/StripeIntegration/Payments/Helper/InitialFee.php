@@ -5,21 +5,20 @@ namespace StripeIntegration\Payments\Helper;
 class InitialFee
 {
     private $paymentsHelper;
-    private $subscriptionsHelperFactory;
-    private $subscriptionsHelper;
-    private $quoteHelper;
+    private $checkoutSessionHelper;
     private $subscriptionProductFactory;
+    private $paymentMethodHelper;
 
     public function __construct(
         \StripeIntegration\Payments\Model\SubscriptionProductFactory $subscriptionProductFactory,
         \StripeIntegration\Payments\Helper\Generic $paymentsHelper,
-        \StripeIntegration\Payments\Helper\Quote $quoteHelper,
-        \StripeIntegration\Payments\Helper\SubscriptionsFactory $subscriptionsHelperFactory
+        \StripeIntegration\Payments\Helper\CheckoutSession $checkoutSessionHelper,
+        \StripeIntegration\Payments\Helper\PaymentMethod $paymentMethodHelper
     ) {
         $this->subscriptionProductFactory = $subscriptionProductFactory;
         $this->paymentsHelper = $paymentsHelper;
-        $this->quoteHelper = $quoteHelper;
-        $this->subscriptionsHelperFactory = $subscriptionsHelperFactory;
+        $this->checkoutSessionHelper = $checkoutSessionHelper;
+        $this->paymentMethodHelper = $paymentMethodHelper;
     }
 
     public function getTotalInitialFeeForCreditmemo($creditmemo, $orderRate = true)
@@ -29,7 +28,7 @@ class InitialFee
         if (empty($payment))
             return 0;
 
-        if (!$this->paymentsHelper->supportsSubscriptions($payment->getMethod()))
+        if (!$this->paymentMethodHelper->supportsSubscriptions($payment->getMethod()))
             return 0;
 
         if ($payment->getAdditionalInformation("is_recurring_subscription") || $payment->getAdditionalInformation("remove_initial_fee"))
@@ -45,6 +44,22 @@ class InitialFee
         return $this->getInitialFeeForItems($items, $rate);
     }
 
+    public function getTotalInitialFeeTaxForCreditmemo($creditmemo)
+    {
+        $payment = $creditmemo->getOrder()->getPayment();
+
+        if (empty($payment))
+            return 0;
+
+        if (!$this->paymentMethodHelper->supportsSubscriptions($payment->getMethod()))
+            return 0;
+
+        if ($payment->getAdditionalInformation("is_recurring_subscription") || $payment->getAdditionalInformation("remove_initial_fee"))
+            return 0;
+
+        return $this->getInitialFeeTaxForCreditmemoItems($creditmemo);
+    }
+
     public function getTotalInitialFeeForInvoice($invoice, $invoiceRate = true)
     {
         $payment = $invoice->getOrder()->getPayment();
@@ -52,7 +67,7 @@ class InitialFee
         if (empty($payment))
             return 0;
 
-        if (!$this->paymentsHelper->supportsSubscriptions($payment->getMethod()))
+        if (!$this->paymentMethodHelper->supportsSubscriptions($payment->getMethod()))
             return 0;
 
         if ($payment->getAdditionalInformation("is_recurring_subscription") || $payment->getAdditionalInformation("remove_initial_fee"))
@@ -77,14 +92,14 @@ class InitialFee
             ];
         }
 
-        if ($this->getSubscriptionsHelper()->isSubscriptionUpdate()) {
+        if ($this->checkoutSessionHelper->isSubscriptionUpdate()) {
             return [
                 "initial_fee" => 0,
                 "base_initial_fee" => 0
             ];
         }
 
-        if ($this->getSubscriptionsHelper()->isSubscriptionReactivate()) {
+        if ($this->checkoutSessionHelper->isSubscriptionReactivate()) {
             return [
                 "initial_fee" => 0,
                 "base_initial_fee" => 0
@@ -119,150 +134,154 @@ class InitialFee
 
     public function getInitialFeeForItems($items, $rate)
     {
-        if ($this->getSubscriptionsHelper()->isSubscriptionUpdate())
+        if ($this->checkoutSessionHelper->isSubscriptionUpdate())
             return 0;
 
-        if ($this->getSubscriptionsHelper()->isSubscriptionReactivate())
+        if ($this->checkoutSessionHelper->isSubscriptionReactivate())
             return 0;
 
         $total = 0;
 
         foreach ($items as $item)
         {
-            $qty = $this->getItemQty($item);
             $productId = $item->getProductId();
+            $qty = $this->getItemQty($item, $productId);
             $total += $this->getInitialFeeForProductId($productId, $rate, $qty);
         }
         return $total;
     }
 
-    public function getInitialFeeForProductId($productId, $rate, $qty)
+    public function getInitialFeeTaxForCreditmemoItems($creditmemo)
     {
-        $product = $this->paymentsHelper->loadProductById($productId);
-
-        if (!$product || !in_array($product->getTypeId(), ["simple", "virtual"]))
+        if ($this->checkoutSessionHelper->isSubscriptionUpdate())
             return 0;
 
-        $subscriptionOptionDetails = $this->getSubscriptionsHelper()->getSubscriptionOptionDetails($product->getId());
-
-        if (!$subscriptionOptionDetails)
+        if ($this->checkoutSessionHelper->isSubscriptionReactivate())
             return 0;
 
-        $subInitialFee = $subscriptionOptionDetails->getSubInitialFee();
+        $totalInitialFeeTax = 0;
+        $totalInitialFeeBaseTax = 0;
 
-        if (!is_numeric($subInitialFee))
-            return 0;
+        foreach ($creditmemo->getAllItems() as $item)
+        {
+            $productId = $item->getProductId();
+            $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($productId);
 
-        return round(floatval($subInitialFee * $rate), 2) * $qty;
+            if (!$subscriptionProductModel->isSubscriptionProduct()) {
+                continue;
+            }
+            $orderItem = $item->getOrderItem();
+            $creditMemoItemQty = $this->getItemQty($item, $productId);
+            $orderItemQty = $orderItem->getQtyOrdered();
+            $orderInitialFeeTax = $orderItem->getInitialFeeTax();
+            $orderBaseInitialFeeTax = $orderItem->getBaseInitialFeeTax();
+
+            // Get the value of the tax for one item in the order and multiply by the number of credit memo items
+            $totalInitialFeeTax += round ($orderInitialFeeTax / $orderItemQty * $creditMemoItemQty, 2);
+            $totalInitialFeeBaseTax += round ($orderBaseInitialFeeTax / $orderItemQty * $creditMemoItemQty, 2);
+        }
+
+        return ['tax' => $totalInitialFeeTax, 'base_tax' => $totalInitialFeeBaseTax];
     }
 
-    public function getAdditionalOptionsForChildrenOf($item)
+    private function getInitialFeeForProductId($productId, $rate, $qty)
+    {
+        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($productId);
+
+        if (!$subscriptionProductModel->isSubscriptionProduct())
+            return 0;
+
+        return $subscriptionProductModel->getInitialFeeAmount($qty, $rate);
+    }
+
+    public function getAdditionalOptionsForQuoteItem($quoteItem, $currencyCode = null)
+    {
+        if (!empty($quoteItem->getQtyOptions()))
+        {
+            return $this->getAdditionalOptionsForChildrenOf($quoteItem, $currencyCode);
+        }
+        else
+        {
+            return $this->getAdditionalOptionsForProductId($quoteItem->getProductId(), $quoteItem, $currencyCode);
+        }
+    }
+
+    private function getAdditionalOptionsForChildrenOf($item, $currencyCode)
     {
         $additionalOptions = [];
 
         foreach ($item->getQtyOptions() as $productId => $option)
         {
-            $additionalOptions = array_merge($additionalOptions, $this->getAdditionalOptionsForProductId($productId, $item));
+            $additionalOptions = array_merge($additionalOptions, $this->getAdditionalOptionsForProductId($productId, $item, $currencyCode));
         }
 
         return $additionalOptions;
     }
 
-    public function getAdditionalOptionsForProductId($productId, $quoteItem)
+    private function getAdditionalOptionsForProductId($productId, $quoteItem, $currencyCode)
     {
-        $qty = $quoteItem->getQty();
+        $qty = $this->getItemQty($quoteItem, $productId);
 
-        $profile = $this->getSubscriptionProfileForProductId($productId, $quoteItem);
-        if (!$profile)
+        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($productId);
+        if (!$subscriptionProductModel->isSubscriptionProduct())
             return [];
 
         $additionalOptions = [
             [
                 'label' => 'Repeats Every',
-                'value' => $profile['repeat_every']
+                'value' => $subscriptionProductModel->getFormattedInterval()
             ]
         ];
 
-        if ($profile['initial_fee_magento'] && is_numeric($profile['initial_fee_magento']) && $profile['initial_fee_magento'] > 0)
+        $initialFee = $subscriptionProductModel->getInitialFeeAmount($qty, null, $currencyCode);
+
+        if ($initialFee > 0)
         {
             $additionalOptions[] = [
                 'label' => 'Initial Fee',
-                'value' => $this->paymentsHelper->addCurrencySymbol($profile['initial_fee_magento'])
+                'value' => $this->paymentsHelper->addCurrencySymbol($initialFee, $currencyCode)
             ];
         }
 
-        if ($profile['trial_days'] && is_numeric($profile['trial_days']) && $profile['trial_days'] > 0)
+        $trialDays = $subscriptionProductModel->getTrialDays();
+
+        if ($trialDays > 0)
         {
             $additionalOptions[] = [
                 'label' => 'Trial Period',
-                'value' => $profile['trial_days'] . " days"
+                'value' => $trialDays . " days"
             ];
         }
 
         return $additionalOptions;
     }
 
-    public function getSubscriptionProfileForProductId($productId, $quoteItem)
-    {
-        $subscriptionProductModel = $this->subscriptionProductFactory->create()->fromProductId($productId);
-
-        if (!$subscriptionProductModel->isSubscriptionProduct())
-            return null;
-
-        $product = $subscriptionProductModel->getProduct();
-
-        try
-        {
-            $quote = $this->quoteHelper->getQuote();
-            if (!$quote->getQuoteCurrencyCode())
-            {
-                $quote->beforeSave();
-            }
-
-            $profile = $this->getSubscriptionsHelper()->getSubscriptionDetails($product, $quote, $quoteItem);
-        }
-        catch (\StripeIntegration\Payments\Exception\InvalidSubscriptionProduct $e)
-        {
-            return null;
-        }
-
-        $subscriptionOptionDetails = $this->getSubscriptionsHelper()->getSubscriptionOptionDetails($product->getId());
-
-        if (!$subscriptionOptionDetails)
-            return null;
-
-        $intervalCount = $subscriptionOptionDetails->getSubIntervalCount();
-        $interval = ucfirst($subscriptionOptionDetails->getSubInterval());
-        $plural = ($intervalCount > 1 ? 's' : '');
-
-        $profile['repeat_every'] = "$intervalCount $interval$plural";
-
-        return $profile;
-    }
-
-    protected function getSubscriptionsHelper()
-    {
-        if (!$this->subscriptionsHelper)
-        {
-            $this->subscriptionsHelper = $this->subscriptionsHelperFactory->create();
-        }
-
-        return $this->subscriptionsHelper;
-    }
-
-    protected function getItemQty($item)
+    public function getItemQty($item, $productId)
     {
         $qty = max(/* quote */ $item->getQty(), /* order */ $item->getQtyOrdered());
 
-        if ($item->getParentItem() && $item->getParentItem()->getProductType() == "configurable")
+        if ($item->getParentItem())
         {
-            if (is_numeric($item->getParentItem()->getQty()))
-                $qty *= $item->getParentItem()->getQty();
+            // The child product was passed
+            $parentProductType = $item->getParentItem()->getProductType();
+            if (in_array($parentProductType, ["configurable", "bundle"]))
+            {
+                $parentQty = max(/* quote */ $item->getParentItem()->getQty(), /* order */ $item->getParentItem()->getQtyOrdered());
+                if (is_numeric($parentQty))
+                    $qty *= $parentQty;
+            }
         }
-        else if ($item->getParentItem() && $item->getParentItem()->getProductType() == "bundle")
+        else if (!empty($item->getQtyOptions()))
         {
-            $parentQty = max(/* quote */ $item->getParentItem()->getQty(), /* order */ $item->getParentItem()->getQtyOrdered());
-            $qty *= $parentQty;
+            // The parent product was passed
+            foreach ($item->getQtyOptions() as $qtyProductId => $option)
+            {
+                if ($qtyProductId == $productId)
+                {
+                    $qty *= $option->getValue();
+                    break;
+                }
+            }
         }
 
         return $qty;

@@ -29,7 +29,7 @@ class OrderValidator
 
         // Check if the order is already placed
         $existingOrder = $this->findExistingOrder($order->getIncrementId(), $order->getQuoteId());
-        if ($existingOrder)
+        if ($existingOrder && !$existingOrder->getIsMultiShipping())
         {
             // Check that the existing order is not paid
             $this->validateOrderNotPaid($existingOrder, $order);
@@ -64,9 +64,8 @@ class OrderValidator
         }
 
         $ordersCollection = $this->orderHelper->loadOrdersByQuoteId($quoteId);
-        if ($ordersCollection && $ordersCollection->getSize() == 1)
+        if ($ordersCollection && $ordersCollection->getSize() >= 1)
         {
-            // If there are multiple orders, it means its a multishipping quote, in which case we will skip the validation
             return $ordersCollection->getFirstItem();
         }
 

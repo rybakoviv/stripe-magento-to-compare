@@ -5,22 +5,35 @@ use Magento\Quote\Model\Quote\Address\Total\AbstractTotal;
 use Magento\Quote\Model\Quote;
 use Magento\Quote\Api\Data\ShippingAssignmentInterface;
 use Magento\Quote\Model\Quote\Address\Total;
+use Magento\Tax\Model\Sales\Total\Quote\CommonTaxCollector;
+use StripeIntegration\Payments\Exception\LocalizedException;
+use StripeIntegration\Payments\Model\SubscriptionProductFactory;
+use Magento\Tax\Model\Config;
 
 class InitialFee extends AbstractTotal
 {
-    private $helper;
+    public const INITIAL_FEE_TYPE = 'initial_fee';
+    public const INITIAL_FEE_CODE = 'initial_fee';
+
     private $storeManager;
     private $initialFeeHelper;
     private $initialFeeHelperFactory;
+    private $subscriptionProductFactory;
+    private $taxConfig;
+    private $count = 0;
 
     public function __construct(
         \StripeIntegration\Payments\Helper\InitialFeeFactory $initialFeeHelperFactory,
-        \Magento\Store\Model\StoreManagerInterface $storeManager
+        \Magento\Store\Model\StoreManagerInterface $storeManager,
+        SubscriptionProductFactory $subscriptionProductFactory,
+        Config $taxConfig
     )
     {
         $this->initialFeeHelperFactory = $initialFeeHelperFactory;
         $this->setCode('initial_fee');
         $this->storeManager = $storeManager;
+        $this->subscriptionProductFactory = $subscriptionProductFactory;
+        $this->taxConfig = $taxConfig;
     }
 
     /**
@@ -40,37 +53,85 @@ class InitialFee extends AbstractTotal
         if (!count($items))
             return $this;
 
-
-        $quoteItems = [];
-        foreach ($items as $item)
-        {
-            if ($item->getQuoteItem())
-            {
-                $addressQty = $item->getQty();
-                $item = $item->getQuoteItem();
+        $address = $shippingAssignment->getShipping()->getAddress();
+        $associatedTaxables = $address->getAssociatedTaxables();
+        if (!$associatedTaxables) {
+            $associatedTaxables = [];
+        } else {
+            // Remove existing initial_fee associated taxables
+            foreach ($associatedTaxables as $key => $taxable) {
+                if ($taxable[CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_TYPE] == self::INITIAL_FEE_TYPE) {
+                    unset($associatedTaxables[$key]);
+                }
             }
-
-            $quoteItems[] = $item;
         }
 
-        $rate = $quote->getBaseToQuoteRate();
-        if (is_numeric($rate))
-        {
-            $amount = $this->getHelper()->getTotalInitialFeeFor($quoteItems, $quote, $rate);
-            $baseAmount = round(floatval($amount / $rate), 2);
-        }
-        else
-        {
-            $amount = $this->getHelper()->getTotalInitialFeeFor($quoteItems, $quote, 1);
-            $baseAmount = $amount;
-        }
+        $mappedItems = [];
+        $totalBaseInitialFee = 0;
+        $totalInitialFee = 0;
+        $subscriptionProcessed = false;
+        $taxClassId = null;
+        foreach ($items as $item) {
+            $subscriptionProduct = $this->subscriptionProductFactory->create()->fromProductId($item->getProductId());
+            if ($subscriptionProduct->isSubscriptionProduct()) {
+                // If there is more than one subscription product in the cart, we will need to refactor the tax
+                // calculation for the initial fee.
+                if ($subscriptionProcessed) {
+                    throw new LocalizedException(__('You can only purchase one subscription at a time.'));
+                }
 
-        $total->setInitialFeeAmount($amount);
-        $total->setBaseInitialFeeAmount($baseAmount);
+                $payment = $quote->getPayment();
+                // If we are in the scenario of migrating subscriptions, the initial fee of the product will not
+                // be taken into consideration.
+                // Also, if there is a recurring subscription the initial fee will be disregarded.
+                if ($payment &&
+                    ($payment->getAdditionalInformation('remove_initial_fee') ||
+                        $payment->getAdditionalInformation('is_recurring_subscription'))
+                ) {
+                    $baseInitialFee = 0;
+                    $initialFee = 0;
+                } else {
+                    // Returns the initial fee amount in the base currency for 1 product
+                    $baseInitialFee = $subscriptionProduct->getBaseInitialFeeAmount();
+                    // Returns the initial fee amount in the current currency for 1 product
+                    $initialFee = $subscriptionProduct->getInitialFeeAmount(1);
+                }
 
-        // Add the fee to the grand total
-        $total->addTotalAmount('initial_fee', $amount);
-        $total->addBaseTotalAmount('base_initial_fee', $baseAmount);
+                $taxClassId = $subscriptionProduct->getProduct()->getTaxClassId();
+                $priceIncludesTax = $this->taxConfig->priceIncludesTax();
+                $itemTaxableCode = self::INITIAL_FEE_CODE . $this->getNextIncrement();
+                $qty = $this->getHelper()->getItemQty($item, $item->getProduct()->getId());
+
+                $associatedTaxables[] = [
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_TYPE => self::INITIAL_FEE_TYPE,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_CODE => $itemTaxableCode,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_UNIT_PRICE => $initialFee,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_BASE_UNIT_PRICE => $baseInitialFee,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_QUANTITY => $qty,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_TAX_CLASS_ID => $taxClassId,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_PRICE_INCLUDES_TAX => $priceIncludesTax,
+                    CommonTaxCollector::KEY_ASSOCIATED_TAXABLE_ASSOCIATION_ITEM_CODE
+                    => CommonTaxCollector::ASSOCIATION_ITEM_CODE_FOR_QUOTE
+                ];
+
+                // Save the mapped items so that after the tax is calculated we can set the values on the item
+                $mappedItems[$itemTaxableCode] = $item;
+
+                // Add the initial fee values to the total variables
+                $totalInitialFee += $initialFee * $qty;
+                $totalBaseInitialFee += $baseInitialFee * $qty;
+
+                $subscriptionProcessed = true;
+            }
+        }
+        $address->setAssociatedTaxables($associatedTaxables);
+        $total->setInitialFeeMappedItems($mappedItems);
+
+        $total->setInitialFeeAmount($totalInitialFee);
+        $total->setBaseInitialFeeAmount($totalBaseInitialFee);
+        // Because there can only be one subscription in the cart, we set the tax class id to use for creating the
+        // Stripe tax request here.
+        $total->setInitialFeeTaxClassId($taxClassId);
 
         return $this;
     }
@@ -143,5 +204,10 @@ class InitialFee extends AbstractTotal
             $this->initialFeeHelper = $this->initialFeeHelperFactory->create();
 
         return $this->initialFeeHelper;
+    }
+
+    private function getNextIncrement()
+    {
+        return ++$this->count;
     }
 }
